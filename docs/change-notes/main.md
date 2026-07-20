@@ -13,3 +13,4 @@
 - runtime: execute the file-free CSV command from `/` so the active configuration needs no optional workspace mount. (working/runtime-cwd-fix)
 - showcase: replace canned successful responses across all six cases with grounded ModelClient calls using the actual request and case evidence. (working/real-llm-cases)
 - showcase: configure the model provider on every LLM-backed workflow step so binding is part of the workflow definition. (working/bind-case-model)
+- docs: document the required running Ollama service and pull commands for both currently configured demo models. (working/readme-ollama)

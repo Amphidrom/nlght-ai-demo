@@ -37,7 +37,50 @@ policy set.
 
 ## Start locally
 
-Prerequisites are Python 3.11+, Docker, a valid nlght-ai license, PostgreSQL configured in `.config/platform.yaml`, and a local Ollama model.
+Prerequisites are Python 3.11+, Docker, a valid nlght-ai license, PostgreSQL configured in
+`.config/platform.yaml`, and a local Ollama installation.
+
+### Ollama and required models
+
+Ollama must be installed and its local service must be running before the demo starts. nlght-ai
+connects to the local Ollama API at `http://localhost:11434`; having only the CLI installed is not
+enough.
+
+Start Ollama if it is not already running:
+
+```powershell
+ollama serve
+```
+
+In another terminal, verify the server and list locally available models:
+
+```powershell
+ollama list
+Invoke-RestMethod http://localhost:11434/api/tags
+```
+
+The model used by all six LLM-backed cases is the `default_model` of the configured `ollama`
+provider. The repository currently references these models:
+
+| Configuration | Current default model | When it is needed |
+|---|---|---|
+| `.config/platform.yaml` | `qwen3:30b-a3b-q4_K_M` | Default local development start |
+| `docker/platform.yaml` | `qwen3-coder:30b` | When this checked-in example config is selected |
+
+Pull the model for the configuration you intend to use before starting the application:
+
+```powershell
+# Default local configuration
+ollama pull qwen3:30b-a3b-q4_K_M
+
+# Only when using docker/platform.yaml
+ollama pull qwen3-coder:30b
+```
+
+You do not need both models unless you switch between both configurations. To use another local
+model, change `integrations.model_providers[].config.default_model` in the active platform config,
+run `ollama pull <model>`, and restart the demo. The model-provider name remains `ollama` because
+the seeded LLM steps reference that provider by name.
 
 ```powershell
 uv sync

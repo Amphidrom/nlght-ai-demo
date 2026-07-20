@@ -128,6 +128,13 @@ class CatalogTests(unittest.TestCase):
         )
         self.assertFalse([path for path in legacy_paths if Path(path).exists()])
 
+    def test_readme_documents_ollama_models_and_startup(self) -> None:
+        readme = Path("README.md").read_text(encoding="utf-8")
+        self.assertIn("ollama serve", readme)
+        self.assertIn("ollama pull qwen3:30b-a3b-q4_K_M", readme)
+        self.assertIn("ollama pull qwen3-coder:30b", readme)
+        self.assertIn("http://localhost:11434", readme)
+
 
 class RunStoreTests(unittest.TestCase):
     def test_run_collects_results_and_terminal_status(self) -> None:
