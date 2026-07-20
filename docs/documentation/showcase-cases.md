@@ -4,6 +4,10 @@ The gallery contains six closed examples. Open a case and select one of its scen
 the editable JSON input. Each scenario is designed to expose a different workflow outcome, not
 just provide different wording.
 
+The portal follows the nlght.ai dark teal visual system and intentionally uses no animations,
+motion effects, or animated backgrounds. Interaction state is communicated through static color,
+border, text, and focus changes.
+
 ## Product FAQ
 
 Try the supported recovery question, the combined offline-and-roles question, and the unsupported

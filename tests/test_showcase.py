@@ -88,6 +88,22 @@ class CatalogTests(unittest.TestCase):
         self.assertIn("'shipping_rate'", seed_text)
         self.assertEqual("shipping_rate", ShippingRateTool.KIND)
 
+    def test_portal_uses_static_brand_styles_without_motion(self) -> None:
+        styles = Path("showcase/static/styles.css").read_text(encoding="utf-8")
+        self.assertIn("--paper: #010c0e", styles)
+        self.assertIn("--accent: #00c8a0", styles)
+        self.assertIn("--lime: #00f0d0", styles)
+        for motion_rule in ("transition:", "animation:", "@keyframes", "scroll-behavior:"):
+            self.assertNotIn(motion_rule, styles)
+
+    def test_legacy_demo_sources_are_absent(self) -> None:
+        legacy_paths = (
+            "github_pr", "memory", "prompt", "rag", "research", "runtime",
+            "tool", "translate", "trigger/adapter.py", "file_outline.py",
+            "status_updates.py", "requests.rest", "requests.sh",
+        )
+        self.assertFalse([path for path in legacy_paths if Path(path).exists()])
+
 
 class RunStoreTests(unittest.TestCase):
     def test_run_collects_results_and_terminal_status(self) -> None:

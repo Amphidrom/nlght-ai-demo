@@ -51,6 +51,10 @@ psql $env:DATABASE_URL -f demo/seed.sql
 
 The default configuration uses a Docker Python image for the runtime case. The six cases do not require GitHub, web search, vector databases, or external knowledge stores.
 
+The repository intentionally contains only the six active showcase packages, their shared portal
+and invocation helper, configuration, seeds, tests, and documentation. Retired example modules are
+not part of this gallery.
+
 ## API quickstart
 
 List cases:
