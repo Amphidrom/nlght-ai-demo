@@ -12,7 +12,9 @@ border, text, and focus changes.
 
 Try the supported recovery question, the combined offline-and-roles question, and the unsupported
 satellite question. Supported answers include explicit local manual IDs. The unsupported question
-demonstrates that retrieval can return an honest unknown instead of fabricating an answer.
+demonstrates that retrieval can return an honest unknown instead of fabricating an answer. Its
+structured result has status `human_review_required`, an empty `sources` list, and instructions to
+open **Help → Contact Support** in Northstar Desk and send the question to a support specialist.
 
 ## Policy-Aware Document Intake
 

@@ -19,7 +19,7 @@ unsupported outcome.
 
 - **Product FAQ:** compare a supported recovery question, a question combining two documented
   topics, and an unsupported satellite question. Answers expose the local manual source IDs;
-  unsupported questions are not invented.
+  unsupported questions are not invented and explicitly request Human-in-the-Loop review.
 - **Policy-Aware Document Intake:** a complete renewal passes `CONTRACT-01`; an incomplete
   renewal shows the missing identifiers; an attributed immediate Linux threat passes `SEC-01`
   and routes to `escalated_review`. The result includes every evaluated policy and its reason.

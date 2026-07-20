@@ -36,7 +36,7 @@ CASES: tuple[ShowcaseCase, ...] = (
         examples=(
             {"title": "Supported question", "description": "Matches the retention article and must cite MANUAL-204.", "input": {"message": "How long can I recover a deleted Northstar Desk project?"}},
             {"title": "Combined question", "description": "Retrieves two manual articles and shows both source IDs.", "input": {"message": "Can I work offline and which team roles are available?"}},
-            {"title": "Unsupported question", "description": "No article supports the answer, so the workflow must refuse.", "input": {"message": "Does Northstar Desk support satellite telemetry?"}},
+            {"title": "Unsupported question", "description": "The assistant says it cannot answer, cites nothing, and explains how to contact support.", "input": {"message": "Does Northstar Desk support satellite telemetry?"}},
         ),
     ),
     ShowcaseCase(

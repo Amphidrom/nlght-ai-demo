@@ -90,11 +90,13 @@ class CatalogTests(unittest.TestCase):
 
     def test_portal_uses_static_brand_styles_without_motion(self) -> None:
         styles = Path("showcase/static/styles.css").read_text(encoding="utf-8")
+        markup = Path("showcase/static/index.html").read_text(encoding="utf-8")
         self.assertIn("--paper: #010c0e", styles)
         self.assertIn("--accent: #00c8a0", styles)
         self.assertIn("--lime: #00f0d0", styles)
         for motion_rule in ("transition:", "animation:", "@keyframes", "scroll-behavior:"):
             self.assertNotIn(motion_rule, styles)
+        self.assertIn("© 2026 Amphidrom GmbH", markup)
 
     def test_legacy_demo_sources_are_absent(self) -> None:
         legacy_paths = (
@@ -187,6 +189,28 @@ class ProductFaqTests(unittest.IsolatedAsyncioTestCase):
         ctx = context("Does it support satellite telemetry?")
         retrieved = await ProductRetrieveStep(config={}).run(ctx)
         self.assertEqual("not_found", retrieved.verdict)
+        answered = await ProductAnswerStep(config={}).run(retrieved.ctx)
+        result = answered.ctx.emitter.signals[-1].content
+        self.assertIn('"status": "human_review_required"', result)
+        self.assertIn("I cannot answer this question", result)
+        self.assertIn("Contact Support", result)
+        self.assertIn("support specialist", result)
+        self.assertIn('"sources": []', result)
+        self.assertNotIn("MANUAL-", result)
+
+    async def test_product_name_and_support_are_not_retrieval_evidence(self) -> None:
+        ctx = context("Does Northstar Desk support satellite telemetry?")
+        retrieved = await ProductRetrieveStep(config={}).run(ctx)
+        self.assertEqual([], retrieved.ctx.metadata["faq_sources"])
+
+    async def test_combined_question_retrieves_only_both_relevant_articles(self) -> None:
+        ctx = context("Can I work offline and which team roles are available?")
+        retrieved = await ProductRetrieveStep(config={}).run(ctx)
+        self.assertEqual("found", retrieved.verdict)
+        self.assertEqual(
+            ["MANUAL-101", "MANUAL-310"],
+            [source["id"] for source in retrieved.ctx.metadata["faq_sources"]],
+        )
 
 
 class ShippingToolTests(unittest.IsolatedAsyncioTestCase):

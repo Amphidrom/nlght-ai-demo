@@ -9,4 +9,11 @@ INSERT INTO workflow_steps (workflow_step_id, workflow_version_id, position, nam
 ('a1100000-0000-0000-0000-000000000003', 'a1100000-0000-0000-0000-000000000002', 1, 'retrieve_manual', 'product_faq_retrieve', '{}', '{"found":"a1100000-0000-0000-0000-000000000004","not_found":"a1100000-0000-0000-0000-000000000005"}', true, false),
 ('a1100000-0000-0000-0000-000000000004', 'a1100000-0000-0000-0000-000000000002', 2, 'answer_grounded', 'product_faq_answer', '{}', '{}', false, true),
 ('a1100000-0000-0000-0000-000000000005', 'a1100000-0000-0000-0000-000000000002', 3, 'answer_unknown', 'product_faq_answer', '{}', '{}', false, true)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (workflow_step_id) DO UPDATE SET
+    position = EXCLUDED.position,
+    name = EXCLUDED.name,
+    type = EXCLUDED.type,
+    config = EXCLUDED.config,
+    transitions = EXCLUDED.transitions,
+    is_start = EXCLUDED.is_start,
+    is_terminal = EXCLUDED.is_terminal;
