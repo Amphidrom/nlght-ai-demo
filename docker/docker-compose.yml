@@ -1,0 +1,16 @@
+services:
+  demo-database:
+    image: postgres:latest
+    restart: always
+    ports:
+      - 5433:5432
+    environment:
+      POSTGRES_USER: demo
+      POSTGRES_PASSWORD: demo
+      POSTGRES_DB: demo
+    volumes:
+      - demo_db_data:/var/lib/postgresql
+
+volumes:
+  demo_db_data:
+  

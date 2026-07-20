@@ -1,0 +1,219 @@
+from __future__ import annotations
+
+import unittest
+from types import SimpleNamespace
+from pathlib import Path
+
+from document_intake.steps import IntakeExtractStep, IntakeRespondStep, IntakeValidateStep
+from incident_triage.steps import IncidentClassifyStep, IncidentNormalizeStep, IncidentRespondStep
+from preference_assistant.steps import PreferenceRememberStep, PreferenceRespondStep
+from product_faq.steps import ProductAnswerStep, ProductRetrieveStep
+from shipping_quote.tool import ShippingRateTool
+from runtime_data_check.steps import RuntimeCsvCheckStep, RuntimeCsvValidateStep
+from nlght.core.signals.signal import Signal
+from nlght.core.workflow.step import WorkflowStepContext
+from showcase.adapter import ShowcaseAdapter
+from showcase.catalog import CASES
+from showcase.runs import RunStore
+
+
+class Emitter:
+    def __init__(self) -> None:
+        self.signals: list[Signal] = []
+
+    async def emit(self, signal: Signal) -> None:
+        self.signals.append(signal)
+
+
+class FakeStoreCoordinator:
+    def __init__(self) -> None:
+        self.slots: dict[str, object] = {}
+        self.writes: list[object] = []
+
+    def get_slot(self, key: str, expected_type=None):
+        return self.slots.get(key, expected_type() if expected_type else None)
+
+    def set_slot(self, key: str, value: object) -> None:
+        self.slots[key] = value
+
+    def start_task(self, task_id: str) -> None:
+        self.task_id = task_id
+
+    def write(self, intent: object) -> None:
+        self.writes.append(intent)
+
+    def finish_task(self, **kwargs) -> None:
+        self.finished = kwargs
+
+    def next_turn_nr(self) -> int:
+        return 1
+
+
+def context(message: str, *, payload: dict | None = None) -> WorkflowStepContext:
+    return WorkflowStepContext(
+        correlation_id="test-cid",
+        trigger=SimpleNamespace(payload=payload or {}),  # type: ignore[arg-type]
+        model="",
+        messages=[{"role": "user", "content": message}],
+        stream=False,
+        emitter=Emitter(),
+    )
+
+
+class CatalogTests(unittest.TestCase):
+    def test_catalog_has_six_unique_non_security_cases(self) -> None:
+        self.assertEqual(6, len(CASES))
+        self.assertEqual(6, len({case.id for case in CASES}))
+        self.assertEqual(
+            {
+                "product-faq",
+                "shipping-quote",
+                "incident-triage",
+                "document-intake",
+                "preference-assistant",
+                "runtime-data-check",
+            },
+            {case.id for case in CASES},
+        )
+
+    def test_adapter_returns_router_with_public_routes(self) -> None:
+        paths = {route.path for route in ShowcaseAdapter().build_router().routes}
+        self.assertIn("/demo", paths)
+        self.assertIn("/demo/api/cases", paths)
+        self.assertIn("/demo/api/runs/{correlation_id}/events", paths)
+
+    def test_seed_defines_only_the_registered_shipping_resource(self) -> None:
+        seed_text = "\n".join(path.read_text(encoding="utf-8") for path in Path("seed").glob("*.sql"))
+        self.assertEqual(1, seed_text.count("INSERT INTO resources"))
+        self.assertIn("'shipping_rate'", seed_text)
+        self.assertEqual("shipping_rate", ShippingRateTool.KIND)
+
+
+class RunStoreTests(unittest.TestCase):
+    def test_run_collects_results_and_terminal_status(self) -> None:
+        store = RunStore("Z:/path-that-is-not-required-for-live-runs")
+        record = store.create(correlation_id="run-1", case_id="product-faq", workflow="product_faq")
+        store.append(record, Signal(role="assistant", content="answer", kind="result"))
+        store.set_status(record, "succeeded")
+        self.assertEqual("answer", record.result)
+        self.assertEqual("succeeded", record.status)
+        self.assertEqual("result", record.events[0]["kind"])
+
+
+class DocumentIntakeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_complete_intake_routes_to_accepted(self) -> None:
+        ctx = context("Today Acme Ltd submitted a renewal for contract AC-1042.")
+        extracted = await IntakeExtractStep(config={}).run(ctx)
+        validated = await IntakeValidateStep(config={}).run(extracted.ctx)
+        self.assertEqual("accepted", validated.verdict)
+        response = await IntakeRespondStep(config={"status": "accepted"}).run(validated.ctx)
+        self.assertEqual("done", response.verdict)
+        self.assertIn('"contract_id": "AC-1042"', response.ctx.emitter.signals[-1].content)
+
+    async def test_missing_fields_routes_to_manual_review(self) -> None:
+        ctx = context("A renewal request arrived today.")
+        extracted = await IntakeExtractStep(config={}).run(ctx)
+        validated = await IntakeValidateStep(config={}).run(extracted.ctx)
+        self.assertEqual("needs_review", validated.verdict)
+        self.assertEqual(["organization", "contract_id"], validated.ctx.metadata["intake"]["missing_fields"])
+
+    async def test_immediate_linux_threat_passes_policy_and_escalates(self) -> None:
+        message = (
+            "Today the governmental cybersecurity agency released a report on an immediate "
+            "threat against all linux based infrastructure."
+        )
+        extracted = await IntakeExtractStep(config={}).run(context(message))
+        validated = await IntakeValidateStep(config={}).run(extracted.ctx)
+        intake = validated.ctx.metadata["intake"]
+        self.assertEqual("escalated_review", validated.verdict)
+        self.assertEqual("threat_bulletin", intake["document_type"])
+        self.assertEqual("high", intake["urgency"])
+        self.assertEqual("governmental cybersecurity agency", intake["organization"])
+        self.assertEqual("linux-based infrastructure", intake["affected_asset"])
+        self.assertEqual("SEC-01", intake["policy_evaluations"][0]["policy"])
+        self.assertEqual("passed", intake["policy_evaluations"][0]["outcome"])
+
+
+class PreferenceAssistantTests(unittest.IsolatedAsyncioTestCase):
+    async def test_remembered_preference_changes_later_response(self) -> None:
+        store = FakeStoreCoordinator()
+        remember_ctx = context("Remember my preference", payload={
+            "action": "remember",
+            "preference": {"response_style": "concise"},
+        })
+        remember_ctx.store_coordinator = store  # type: ignore[assignment]
+        remembered = await PreferenceRememberStep(config={}).run(remember_ctx)
+        self.assertEqual("remembered", remembered.verdict)
+        self.assertEqual({"response_style": "concise"}, store.slots["demo:preferences"])
+
+        apply_ctx = context("Apply my preference", payload={
+            "action": "apply",
+            "task": "Explain why restore tests matter.",
+        })
+        apply_ctx.store_coordinator = store  # type: ignore[assignment]
+        applied = await PreferenceRememberStep(config={}).run(apply_ctx)
+        response = await PreferenceRespondStep(config={}).run(applied.ctx)
+        result = response.ctx.emitter.signals[-1].content
+        self.assertIn('"status": "preference_applied"', result)
+        self.assertIn('"response_style": "concise"', result)
+        self.assertIn("Test backups regularly", result)
+
+
+class ProductFaqTests(unittest.IsolatedAsyncioTestCase):
+    async def test_answer_contains_explicit_manual_source(self) -> None:
+        ctx = context("How long can I recover a deleted project?")
+        retrieved = await ProductRetrieveStep(config={}).run(ctx)
+        self.assertEqual("found", retrieved.verdict)
+        answered = await ProductAnswerStep(config={}).run(retrieved.ctx)
+        self.assertIn("[MANUAL-204]", answered.ctx.emitter.signals[-1].content)
+
+    async def test_unsupported_question_is_not_answered(self) -> None:
+        ctx = context("Does it support satellite telemetry?")
+        retrieved = await ProductRetrieveStep(config={}).run(ctx)
+        self.assertEqual("not_found", retrieved.verdict)
+
+
+class ShippingToolTests(unittest.IsolatedAsyncioTestCase):
+    async def test_quote_is_deterministic(self) -> None:
+        tool = ShippingRateTool(name="shipping-rates", config={})
+        result = await tool.quote(weight_kg=3.5, zone="eu", express=True)
+        self.assertIn('"amount": 21.73', result)
+
+
+class RuntimeDataCheckTests(unittest.IsolatedAsyncioTestCase):
+    async def test_csv_is_passed_to_fixed_process_environment(self) -> None:
+        class Runtime:
+            async def exec(self, command, *, cwd=None, env=None):
+                self.command = command
+                self.env = env
+                return 0, '{"rows": 2, "columns": ["name", "email"], "missing_values": 1}\n', ""
+
+        ctx = context("", payload={"csv": "name,email\nAda,ada@example.test\nGrace,"})
+        runtime = Runtime()
+        ctx.os_runtime = runtime
+        validated = await RuntimeCsvValidateStep(config={}).run(ctx)
+        checked = await RuntimeCsvCheckStep(config={}).run(validated.ctx)
+        self.assertEqual("done", checked.verdict)
+        self.assertEqual(ctx.metadata["csv"], runtime.env["CSV_INPUT"])
+        self.assertEqual(["python", "-c"], runtime.command[:2])
+
+
+class IncidentTriageTests(unittest.IsolatedAsyncioTestCase):
+    async def test_high_error_rate_routes_to_urgent_response(self) -> None:
+        ctx = context("Triage alert", payload={
+            "alert": {"service": "checkout", "error_rate": 0.18, "p95_ms": 2400}
+        })
+        normalized = await IncidentNormalizeStep(config={}).run(ctx)
+        classified = await IncidentClassifyStep(config={}).run(normalized.ctx)
+        self.assertEqual("urgent", classified.verdict)
+        response = await IncidentRespondStep(config={"route": "urgent_response"}).run(classified.ctx)
+        self.assertIn('"severity": "high"', response.ctx.emitter.signals[-1].content)
+
+    async def test_invalid_metrics_take_manual_review_path(self) -> None:
+        ctx = context("Triage alert", payload={"alert": {"error_rate": "not-a-number"}})
+        normalized = await IncidentNormalizeStep(config={}).run(ctx)
+        self.assertEqual("invalid", normalized.verdict)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>nlght-ai Showcase</title>
+  <link rel="stylesheet" href="/demo/assets/styles.css">
+</head>
+<body>
+  <header class="hero">
+    <nav><span class="brand">nlght<span>·ai</span></span><a href="/docs">API docs ↗</a></nav>
+    <div class="hero-copy">
+      <p class="eyebrow">RUNTIME PLATFORM · LIVE SHOWCASE</p>
+      <h1>From a signal to a<br><em>reliable outcome.</em></h1>
+      <p>Six focused examples. Real workflows, visible reasoning stages, local-first execution.</p>
+      <div id="health" class="health">Checking runtime…</div>
+    </div>
+  </header>
+
+  <main>
+    <section class="intro">
+      <div><p class="eyebrow">CHOOSE A WORKFLOW</p><h2>Explore the platform by outcome</h2></div>
+      <p>Each case combines several platform capabilities into one closed, inspectable journey.</p>
+    </section>
+    <section id="gallery" class="gallery" aria-live="polite"></section>
+  </main>
+
+  <dialog id="runner">
+    <button class="close" aria-label="Close">×</button>
+    <p class="eyebrow" id="runner-capabilities"></p>
+    <h2 id="runner-title"></h2>
+    <p id="runner-story" class="story"></p>
+    <p class="examples-label">Try a scenario</p>
+    <div id="examples" class="examples"></div>
+    <label for="runner-input">Input</label>
+    <textarea id="runner-input" spellcheck="false"></textarea>
+    <div class="actions">
+      <button id="run" class="primary">Run workflow</button>
+      <span id="run-state"></span>
+    </div>
+    <section id="timeline" class="timeline"></section>
+    <pre id="result" class="result" hidden></pre>
+  </dialog>
+
+  <footer><span>nlght-ai</span><span>Workflows · Tools · Memory · Runtime</span></footer>
+  <script src="/demo/assets/app.js" defer></script>
+</body>
+</html>

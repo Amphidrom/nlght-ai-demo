@@ -1,0 +1,46 @@
+logging:
+  level:
+    root: INFO
+    nlght: INFO
+    demo: DEBUG
+    uvicorn: INFO
+    sqlalchemy.engine: WARNING
+
+licensing:
+  license_server_url: "https://keygen.localhost"
+  license_key: "FB220D-6F10C6-E23DDF-BD7FEE-724DC7-V3"
+
+protocol_adapters: []
+
+gateways:
+  - name: "entry-gateway"
+    kind: "http"
+    enabled: true
+    config:
+      host: "localhost"
+      port: 9000
+
+os_runtime:
+  kind: docker
+  enabled: true
+  config:
+    base_image: "python:3.13-slim"
+
+integrations:
+  persistence:
+    workflows:
+      backend: "postgres"
+      url: "postgresql+asyncpg://workflow:workflow@localhost:5433/enlight_ai"
+    hive_mind:
+      provider:
+        name: sessions
+        kind: filesystem
+        enabled: true
+        config:
+          base_dir: ./.sessions
+  model_providers:
+    - name: "ollama"
+      kind: "ollama-local"
+      config:
+        base_url: "http://localhost:11434"
+        default_model: "qwen3-coder:30b"
