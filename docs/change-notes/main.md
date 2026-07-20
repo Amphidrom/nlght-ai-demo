@@ -10,3 +10,4 @@
 - faq: prevent shared product words from producing false manual matches and route unsupported questions to a citation-free human handoff. (working/faq-human-handoff)
 - portal: show the Amphidrom GmbH copyright notice in the showcase footer. (working/faq-human-handoff)
 - runtime: mount the configured per-run workspace so Docker CSV checks can execute in `/workspace`. (working/runtime-workspace)
+- runtime: execute the file-free CSV command from `/` so the active configuration needs no optional workspace mount. (working/runtime-cwd-fix)

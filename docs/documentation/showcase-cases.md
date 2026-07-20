@@ -38,5 +38,6 @@ new key that cannot access the stored preference.
 
 - Shipping Quote contrasts validated tool input with a rejected parcel.
 - Incident Triage contrasts urgent and routine workflow branches.
-- Runtime Data Check contrasts CSV data with and without missing values. Its fixed Python command
-  runs in a per-invocation Docker workspace mounted from the ignored `.workspaces/` directory.
+- Runtime Data Check contrasts CSV data with and without missing values. Its fixed, file-free Python
+  command executes from the container root and passes CSV data only through `CSV_INPUT`; it does not
+  depend on an optional workspace mount.

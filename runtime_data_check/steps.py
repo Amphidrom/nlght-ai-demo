@@ -39,6 +39,7 @@ class RuntimeCsvCheckStep(StepBase):
         await ctx.emitter.emit(Signal("assistant", "Checking CSV data in the isolated runtime", kind="status"))
         code, stdout, stderr = await ctx.os_runtime.exec(
             ["python", "-c", _CHECK],
+            cwd="/",
             env={"CSV_INPUT": ctx.metadata["csv"]},
         )
         result = {"exit_code": code, "report": stdout.strip(), "error": stderr.strip() or None}

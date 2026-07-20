@@ -237,12 +237,12 @@ class RuntimeDataCheckTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("done", checked.verdict)
         self.assertEqual(ctx.metadata["csv"], runtime.env["CSV_INPUT"])
         self.assertEqual(["python", "-c"], runtime.command[:2])
-        self.assertIsNone(runtime.cwd)
+        self.assertEqual("/", runtime.cwd)
 
-    async def test_docker_runtime_mounts_its_default_workdir(self) -> None:
+    async def test_docker_runtime_config_does_not_require_a_workspace_mount(self) -> None:
         config = Path("docker/platform.yaml").read_text(encoding="utf-8")
         self.assertIn('base_image: "python:3.13-slim"', config)
-        self.assertIn('workspace_path: "./.workspaces"', config)
+        self.assertNotIn("workspace_path:", config)
 
 
 class IncidentTriageTests(unittest.IsolatedAsyncioTestCase):

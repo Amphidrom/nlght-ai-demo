@@ -49,9 +49,9 @@ From the parent directory of this repository:
 psql $env:DATABASE_URL -f demo/seed.sql
 ```
 
-The default configuration uses a Docker Python image for the runtime case. It mounts a disposable
-per-run directory below `.workspaces/` at `/workspace` inside the container. The six cases do not
-require GitHub, web search, vector databases, or external knowledge stores.
+The default configuration uses a Docker Python image for the runtime case. Its file-free command
+runs from the container root and does not require a mounted workspace. The six cases do not require
+GitHub, web search, vector databases, or external knowledge stores.
 
 The repository intentionally contains only the six active showcase packages, their shared portal
 and invocation helper, configuration, seeds, tests, and documentation. Retired example modules are
