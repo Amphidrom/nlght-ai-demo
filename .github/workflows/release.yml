@@ -1,0 +1,93 @@
+name: Release tagged demo
+
+on:
+  push:
+    tags:
+      - "v[0-9]*"
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build, verify, and release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade build packaging
+
+      - name: Set package version from tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+          from packaging.version import Version
+
+          tag = os.environ["RELEASE_TAG"]
+          if not tag.startswith("v"):
+              raise SystemExit(f"Release tag must start with v: {tag}")
+          version = str(Version(tag[1:]))
+          path = Path("pyproject.toml")
+          text = path.read_text(encoding="utf-8")
+          updated, count = re.subn(
+              r'(?m)^version = "[^"]+"$',
+              f'version = "{version}"',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit("Could not set project version in pyproject.toml")
+          path.write_text(updated, encoding="utf-8")
+          print(f"Building nlght-ai-demo {version}")
+          PY
+
+      - name: Build wheel and source distribution
+        run: python -m build
+
+      - name: Install and verify wheel
+        run: |
+          python -m venv .release-venv
+          .release-venv/bin/python -m pip install dist/*.whl
+          .release-venv/bin/python - <<'PY'
+          from importlib import metadata, resources
+
+          version = metadata.version("nlght-ai-demo")
+          assets = resources.files("showcase").joinpath("static")
+          required = ("index.html", "styles.css", "app.js")
+          missing = [name for name in required if not assets.joinpath(name).is_file()]
+          if missing:
+              raise SystemExit(f"Missing packaged portal assets: {missing}")
+          scripts = {
+              ep.name: ep for ep in metadata.entry_points(group="console_scripts")
+          }
+          entry = scripts.get("nlght-ai-demo")
+          if entry is None or entry.value != "main:run":
+              raise SystemExit(f"Invalid nlght-ai-demo entry point: {entry}")
+          print(f"Verified nlght-ai-demo {version} with portal assets and CLI")
+          PY
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${{ github.ref_name }}" dist/*
+          --verify-tag
+          --generate-notes
+          --title "nlght-ai Demo ${{ github.ref_name }}"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import tomllib
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -134,6 +135,23 @@ class CatalogTests(unittest.TestCase):
         self.assertIn("ollama pull qwen3:30b-a3b-q4_K_M", readme)
         self.assertIn("ollama pull qwen3-coder:30b", readme)
         self.assertIn("http://localhost:11434", readme)
+
+    def test_release_package_includes_cli_and_portal_assets(self) -> None:
+        project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+        self.assertEqual("main:run", project["project"]["scripts"]["nlght-ai-demo"])
+        self.assertEqual(["main"], project["tool"]["setuptools"]["py-modules"])
+        self.assertEqual(
+            ["static/*.html", "static/*.css", "static/*.js"],
+            project["tool"]["setuptools"]["package-data"]["showcase"],
+        )
+
+    def test_release_workflow_is_tag_triggered_and_install_verified(self) -> None:
+        workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+        self.assertIn('"v[0-9]*"', workflow)
+        self.assertIn("python -m build", workflow)
+        self.assertIn("pip install dist/*.whl", workflow)
+        self.assertIn("gh release create", workflow)
+        self.assertIn("contents: write", workflow)
 
 
 class RunStoreTests(unittest.TestCase):

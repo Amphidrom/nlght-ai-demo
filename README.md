@@ -143,3 +143,30 @@ The core showcase suite uses the Python standard library and does not require a 
 ```
 
 Live model, GitHub, and web-search checks should remain separate optional end-to-end suites.
+
+## Versioned releases
+
+Demo releases are created from version tags such as `v0.2.0`. Pushing the tag runs the GitHub
+release workflow, derives package version `0.2.0`, builds a wheel and source distribution, installs
+the wheel in a clean environment, verifies the packaged portal assets and CLI entry point, and then
+attaches both artifacts to a GitHub Release with generated release notes.
+
+Create a release intentionally from a clean commit:
+
+```powershell
+git tag -a v0.2.0 -m "nlght-ai Demo v0.2.0"
+git push origin v0.2.0
+```
+
+Install a released demo wheel with the GitHub CLI:
+
+```powershell
+gh release download v0.2.0 --pattern "*.whl" --dir .release-download
+python -m pip install (Get-ChildItem .release-download\*.whl)
+nlght-ai-demo
+```
+
+The leading `v` is used by Git tags and GitHub Releases; Python package metadata omits it. Tags must
+therefore contain a PEP 440-compatible version after the prefix. Releases are published to GitHub,
+not PyPI. The installed demo still requires the configured PostgreSQL database, nlght-ai license,
+Docker runtime, and running Ollama service described above.

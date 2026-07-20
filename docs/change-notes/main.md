@@ -14,3 +14,4 @@
 - showcase: replace canned successful responses across all six cases with grounded ModelClient calls using the actual request and case evidence. (working/real-llm-cases)
 - showcase: configure the model provider on every LLM-backed workflow step so binding is part of the workflow definition. (working/bind-case-model)
 - docs: document the required running Ollama service and pull commands for both currently configured demo models. (working/readme-ollama)
+- release: build, install-verify, and publish wheel and sdist artifacts when a `v*` tag is pushed. (working/tagged-demo-releases; ADR-0001)

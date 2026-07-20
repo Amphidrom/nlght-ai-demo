@@ -39,5 +39,10 @@ tool_registry.register(ShippingRateTool)
 http_adapter_registry.register(ShowcaseAdapter())
 
 
-if __name__ == "__main__":
+def run() -> None:
+    """Start the packaged demo application."""
     serve()
+
+
+if __name__ == "__main__":
+    run()

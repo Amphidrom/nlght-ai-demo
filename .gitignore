@@ -1,5 +1,9 @@
 __pycache__
 *.egg-info/
+build/
+dist/
+.release-download/
+.release-venv/
 .agents
 .claude
 .config

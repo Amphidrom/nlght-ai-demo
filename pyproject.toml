@@ -10,5 +10,15 @@ dependencies = [
     "nlght-ai[docker,hive-mind]",
 ]
 
+[project.scripts]
+nlght-ai-demo = "main:run"
+
 [tool.setuptools.packages.find]
 where = ["."]
+exclude = ["tests*"]
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.package-data]
+showcase = ["static/*.html", "static/*.css", "static/*.js"]
