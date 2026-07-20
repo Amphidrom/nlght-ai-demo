@@ -225,6 +225,7 @@ class RuntimeDataCheckTests(unittest.IsolatedAsyncioTestCase):
         class Runtime:
             async def exec(self, command, *, cwd=None, env=None):
                 self.command = command
+                self.cwd = cwd
                 self.env = env
                 return 0, '{"rows": 2, "columns": ["name", "email"], "missing_values": 1}\n', ""
 
@@ -236,6 +237,12 @@ class RuntimeDataCheckTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("done", checked.verdict)
         self.assertEqual(ctx.metadata["csv"], runtime.env["CSV_INPUT"])
         self.assertEqual(["python", "-c"], runtime.command[:2])
+        self.assertIsNone(runtime.cwd)
+
+    async def test_docker_runtime_mounts_its_default_workdir(self) -> None:
+        config = Path("docker/platform.yaml").read_text(encoding="utf-8")
+        self.assertIn('base_image: "python:3.13-slim"', config)
+        self.assertIn('workspace_path: "./.workspaces"', config)
 
 
 class IncidentTriageTests(unittest.IsolatedAsyncioTestCase):

@@ -7,8 +7,7 @@ logging:
     sqlalchemy.engine: WARNING
 
 licensing:
-  license_server_url: "https://keygen.localhost"
-  license_key: "FB220D-6F10C6-E23DDF-BD7FEE-724DC7-V3"
+  license_key: "YOUR_LICENSE_KEY"
 
 protocol_adapters: []
 
@@ -25,6 +24,7 @@ os_runtime:
   enabled: true
   config:
     base_image: "python:3.13-slim"
+    workspace_path: "./.workspaces"
 
 integrations:
   persistence:
