@@ -10,6 +10,9 @@ severity classification, policy evaluations, persisted preferences, or an isolat
 Deterministic components own factual calculations and routing; the model owns language and
 contextual explanation.
 
+Each LLM-backed workflow step selects its provider explicitly through `config.model_provider` in
+the seeded workflow definition. The portal supplies the configured default model for the request.
+
 The portal follows the nlght.ai dark teal visual system and intentionally uses no animations,
 motion effects, or animated backgrounds. Interaction state is communicated through static color,
 border, text, and focus changes.

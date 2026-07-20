@@ -56,13 +56,16 @@ INSERT INTO workflow_steps (
 (
     'f8100000-0000-0000-0000-000000000005',
     'f8100000-0000-0000-0000-000000000002',
-    3, 'urgent_response', 'incident_respond', '{"route": "urgent_response"}', '{}',
+    3, 'urgent_response', 'incident_respond', '{"route":"urgent_response","model_provider":"ollama"}', '{}',
     false, true
 ),
 (
     'f8100000-0000-0000-0000-000000000006',
     'f8100000-0000-0000-0000-000000000002',
-    4, 'manual_review', 'incident_respond', '{"route": "manual_review"}', '{}',
+    4, 'manual_review', 'incident_respond', '{"route":"manual_review","model_provider":"ollama"}', '{}',
     false, true
 )
-ON CONFLICT DO NOTHING;
+ON CONFLICT (workflow_step_id) DO UPDATE SET
+    position = EXCLUDED.position, name = EXCLUDED.name, type = EXCLUDED.type,
+    config = EXCLUDED.config, transitions = EXCLUDED.transitions,
+    is_start = EXCLUDED.is_start, is_terminal = EXCLUDED.is_terminal;

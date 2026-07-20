@@ -68,19 +68,19 @@ INSERT INTO workflow_steps (
 (
     'd6100000-0000-0000-0000-000000000005',
     'd6100000-0000-0000-0000-000000000002',
-    3, 'accepted', 'intake_respond', '{"status": "accepted"}', '{}',
+    3, 'accepted', 'intake_respond', '{"status":"accepted","model_provider":"ollama"}', '{}',
     false, true
 ),
 (
     'd6100000-0000-0000-0000-000000000006',
     'd6100000-0000-0000-0000-000000000002',
-    4, 'needs_review', 'intake_respond', '{"status": "needs_review"}', '{}',
+    4, 'needs_review', 'intake_respond', '{"status":"needs_review","model_provider":"ollama"}', '{}',
     false, true
 ),
 (
     'd6100000-0000-0000-0000-000000000007',
     'd6100000-0000-0000-0000-000000000002',
-    5, 'escalated_review', 'intake_respond', '{"status": "escalated_review"}', '{}',
+    5, 'escalated_review', 'intake_respond', '{"status":"escalated_review","model_provider":"ollama"}', '{}',
     false, true
 )
 ON CONFLICT (workflow_step_id) DO UPDATE SET

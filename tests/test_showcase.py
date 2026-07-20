@@ -106,6 +106,10 @@ class CatalogTests(unittest.TestCase):
         self.assertIn("'shipping_rate'", seed_text)
         self.assertEqual("shipping_rate", ShippingRateTool.KIND)
 
+    def test_every_llm_terminal_step_selects_its_provider(self) -> None:
+        seed_text = "\n".join(path.read_text(encoding="utf-8") for path in Path("seed").glob("*.sql"))
+        self.assertEqual(10, seed_text.count('"model_provider":"ollama"'))
+
     def test_portal_uses_static_brand_styles_without_motion(self) -> None:
         styles = Path("showcase/static/styles.css").read_text(encoding="utf-8")
         markup = Path("showcase/static/index.html").read_text(encoding="utf-8")

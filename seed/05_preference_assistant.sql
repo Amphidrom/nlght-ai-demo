@@ -7,7 +7,7 @@ INSERT INTO workflow_versions (workflow_version_id, workflow_id, version, status
 ON CONFLICT DO NOTHING;
 INSERT INTO workflow_steps (workflow_step_id, workflow_version_id, position, name, type, config, transitions, is_start, is_terminal) VALUES
 ('d5100000-0000-0000-0000-000000000003', 'd5100000-0000-0000-0000-000000000002', 1, 'resolve_preference_action', 'preference_remember', '{}', '{"remembered":"d5100000-0000-0000-0000-000000000004","apply":"d5100000-0000-0000-0000-000000000004","missing":"d5100000-0000-0000-0000-000000000004"}', true, false),
-('d5100000-0000-0000-0000-000000000004', 'd5100000-0000-0000-0000-000000000002', 2, 'confirm_preference', 'preference_respond', '{}', '{}', false, true)
+('d5100000-0000-0000-0000-000000000004', 'd5100000-0000-0000-0000-000000000002', 2, 'confirm_preference', 'preference_respond', '{"model_provider":"ollama"}', '{}', false, true)
 ON CONFLICT (workflow_step_id) DO UPDATE SET
     position = EXCLUDED.position,
     name = EXCLUDED.name,
