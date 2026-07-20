@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import ClassVar
 
 from nlght.core.signals.signal import Signal
@@ -39,7 +40,14 @@ class ShippingQuoteStep(StepBase):
         tool = ctx.tools.get_or_none("shipping_quote") if ctx.tools else None
         if tool is None:
             return StepResult(ctx=ctx, verdict="failed")
+        if ctx.llm is None:
+            return StepResult(ctx=ctx, verdict="failed")
         await ctx.emitter.emit(Signal("assistant", "Calculating the verified shipping rate", kind="status"))
         quote = await tool.execute(**ctx.metadata["shipment"])
-        await ctx.emitter.emit(Signal("assistant", str(quote), kind="result"))
+        system = (
+            "You are a shipping assistant. Explain the verified tool quote clearly and concisely. "
+            "Use only the shipment and quote supplied by the user message; do not change amounts, currency, or service facts."
+        )
+        user = json.dumps({"shipment": ctx.metadata["shipment"], "verified_quote": quote})
+        await ctx.llm.call(messages=[{"role": "system", "content": system}, {"role": "user", "content": user}], temperature=0.1)
         return StepResult(ctx=ctx, verdict="done")

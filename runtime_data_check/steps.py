@@ -43,5 +43,17 @@ class RuntimeCsvCheckStep(StepBase):
             env={"CSV_INPUT": ctx.metadata["csv"]},
         )
         result = {"exit_code": code, "report": stdout.strip(), "error": stderr.strip() or None}
-        await ctx.emitter.emit(Signal("assistant", json.dumps(result, indent=2), kind="result"))
-        return StepResult(ctx=ctx, verdict="done" if code == 0 else "failed")
+        if code != 0:
+            await ctx.emitter.emit(Signal("assistant", json.dumps(result, indent=2), kind="result"))
+            return StepResult(ctx=ctx, verdict="failed")
+        if ctx.llm is None:
+            return StepResult(ctx=ctx, verdict="failed")
+        system = (
+            "You are a data-quality assistant. Explain the verified CSV report supplied in the user "
+            "message. State row count, columns, and missing-value count exactly, then suggest one practical next action. "
+            "Do not invent rows, columns, or values."
+        )
+        user = json.dumps({"runtime_report": json.loads(stdout), "execution": {"exit_code": code}})
+        await ctx.emitter.emit(Signal("assistant", "Generating a data-quality explanation", kind="status"))
+        await ctx.llm.call(messages=[{"role": "system", "content": system}, {"role": "user", "content": user}], temperature=0.1)
+        return StepResult(ctx=ctx, verdict="done")

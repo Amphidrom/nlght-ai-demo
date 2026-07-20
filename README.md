@@ -1,6 +1,6 @@
 # nlght-ai Demo Gallery
 
-This repository is a local-first showcase for the nlght-ai Runtime Platform. It combines workflows, tools, model providers, persistent sessions, runtime isolation, custom HTTP triggers, and streaming into six outcome-focused examples.
+This repository is a local-first showcase for the nlght-ai Runtime Platform. It combines workflows, real model calls, tools, persistent sessions, runtime isolation, custom HTTP triggers, and streaming into six outcome-focused examples.
 
 ## Showcase cases
 
@@ -14,6 +14,11 @@ This repository is a local-first showcase for the nlght-ai Runtime Platform. It 
 Each case includes selectable scenarios in the portal. They are not cosmetic presets: the
 variants exercise success, routing, validation, remembered session state, or an honest
 unsupported outcome.
+
+Every successful case calls the configured model with the visitor's concrete input and grounded
+case evidence. Retrieval records, tool prices, routing rules, persisted preferences, and runtime
+reports remain authoritative; the model answers or explains from those values instead of returning
+hard-coded assistant prose.
 
 ### What to try
 

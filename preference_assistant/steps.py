@@ -59,34 +59,25 @@ class PreferenceRespondStep(StepBase):
     TYPE: ClassVar[str] = "preference_respond"
 
     async def run(self, ctx: WorkflowStepContext) -> StepResult:
+        if ctx.llm is None:
+            return StepResult(ctx=ctx, verdict="failed")
         action = ctx.metadata.get("preference_action")
         preferences = dict(ctx.metadata.get("preferences") or {})
         if action == "remember":
-            result = {
-                "status": "remembered",
-                "saved_preferences": preferences,
-                "next_step": "Run the 'Step 2 · Apply' example with the same session_key.",
-            }
+            system = (
+                "Confirm briefly which explicit user preferences were saved. Do not claim any preference "
+                "that is absent. Tell the user they can now run a later task with the same session key."
+            )
+            user = json.dumps({"saved_preferences": preferences})
         elif action == "apply":
             task = str(ctx.metadata.get("task") or "Explain the requested topic.")
-            style = str(preferences.get("response_style", "standard"))
-            if style == "concise":
-                response = "Test backups regularly so recovery failures are found before an emergency."
-            elif style == "detailed":
-                response = (
-                    "Backups only create potential recovery. Regular restore tests verify integrity, "
-                    "credentials, procedures, dependencies, and the actual recovery time."
-                )
-            else:
-                response = "Regular restore tests confirm that backups are complete and usable when recovery is required."
-            result = {
-                "status": "preference_applied" if preferences else "no_saved_preference",
-                "task": task,
-                "applied_preferences": preferences,
-                "response": response,
-            }
+            system = (
+                "Perform the supplied task while following only the persisted user preferences in the "
+                "user message. If preferences are empty, say no saved preference was available and answer normally."
+            )
+            user = json.dumps({"task": task, "persisted_preferences": preferences})
         else:
-            result = {"status": "invalid_request", "expected_actions": ["remember", "apply"]}
-        content = json.dumps(result, indent=2)
-        await ctx.emitter.emit(Signal("assistant", content, kind="result"))
+            return StepResult(ctx=ctx, verdict="failed")
+        await ctx.emitter.emit(Signal("assistant", "Calling the model with persisted preferences", kind="status"))
+        await ctx.llm.call(messages=[{"role": "system", "content": system}, {"role": "user", "content": user}], temperature=0.2)
         return StepResult(ctx=ctx, verdict="done")

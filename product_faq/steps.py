@@ -32,22 +32,27 @@ class ProductAnswerStep(StepBase):
     TYPE: ClassVar[str] = "product_faq_answer"
 
     async def run(self, ctx: WorkflowStepContext) -> StepResult:
+        if ctx.llm is None:
+            return StepResult(ctx=ctx, verdict="failed")
         sources = list(ctx.metadata.get("faq_sources") or [])
+        question = str(ctx.metadata.get("faq_question") or "")
         if not sources:
-            result = {
-                "status": "human_review_required",
-                "answer": "I cannot answer this question from the available Northstar Desk manuals.",
-                "reason": "No manual article supports an answer to this question.",
-                "support": {
-                    "channel": "Northstar Desk application",
-                    "instructions": "Open Help, select Contact Support, and send this question to a support specialist.",
-                },
-                "question": str(ctx.metadata.get("faq_question") or ""),
-                "sources": [],
-            }
-            await ctx.emitter.emit(Signal("assistant", json.dumps(result, indent=2), kind="result"))
+            system = (
+                "You are the Northstar Desk support assistant. The retrieval step found no supporting "
+                "manual article. State plainly that you cannot answer the question from the available "
+                "manuals. Do not answer the underlying question and do not cite any manual. Tell the "
+                "user to open Help, choose Contact Support, and send the question to a support specialist."
+            )
+            user = json.dumps({"question": question, "retrieved_manuals": []})
+            await ctx.emitter.emit(Signal("assistant", "No grounded manual found; requesting human support", kind="status"))
+            await ctx.llm.call(messages=[{"role": "system", "content": system}, {"role": "user", "content": user}], temperature=0.1)
             return StepResult(ctx=ctx, verdict="done")
-        citations = ", ".join(f"[{source['id']}]" for source in sources)
-        facts = " ".join(source["text"] for source in sources)
-        await ctx.emitter.emit(Signal("assistant", f"{facts}\n\nSources: {citations}", kind="result"))
+        system = (
+            "Answer the product question using only the retrieved manual records in the user message. "
+            "Cite every factual sentence with the relevant manual ID in square brackets. If the records "
+            "do not support the answer, say you cannot answer and direct the user to Help > Contact Support."
+        )
+        user = json.dumps({"question": question, "retrieved_manuals": sources})
+        await ctx.emitter.emit(Signal("assistant", "Generating a grounded answer from retrieved manuals", kind="status"))
+        await ctx.llm.call(messages=[{"role": "system", "content": system}, {"role": "user", "content": user}], temperature=0.1)
         return StepResult(ctx=ctx, verdict="done")

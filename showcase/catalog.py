@@ -31,7 +31,7 @@ CASES: tuple[ShowcaseCase, ...] = (
         tagline="Answer from three controlled manual articles with explicit source IDs.",
         story="Retrieve only matching Northstar Desk manual passages and refuse unsupported questions.",
         workflow="product_faq",
-        capabilities=("grounding", "retrieval", "source IDs", "unknown handling"),
+        capabilities=("LLM grounding", "retrieval", "source IDs", "unknown handling"),
         sample_input={"message": "How long can I recover a deleted Northstar Desk project?"},
         examples=(
             {"title": "Supported question", "description": "Matches the retention article and must cite MANUAL-204.", "input": {"message": "How long can I recover a deleted Northstar Desk project?"}},
@@ -45,7 +45,7 @@ CASES: tuple[ShowcaseCase, ...] = (
         tagline="Validate a parcel and calculate one reproducible rate.",
         story="Pass validated shipment data to a registered custom tool and return its JSON result.",
         workflow="shipping_quote",
-        capabilities=("custom tool", "validation", "tool catalog", "structured result"),
+        capabilities=("LLM explanation", "custom tool", "validation", "tool catalog"),
         sample_input={"shipment": {"weight_kg": 3.5, "zone": "eu", "express": True}},
         examples=(
             {"title": "EU express", "description": "Valid input reaches the custom rate tool.", "input": {"shipment": {"weight_kg": 3.5, "zone": "eu", "express": True}}},
@@ -61,7 +61,7 @@ CASES: tuple[ShowcaseCase, ...] = (
             "it to an urgent response or a routine review."
         ),
         workflow="incident_triage",
-        capabilities=("structured signals", "workflow branching", "validation", "status events"),
+        capabilities=("LLM guidance", "structured signals", "workflow branching", "validation"),
         sample_input={
             "alert": {"service": "checkout", "error_rate": 0.18, "p95_ms": 2400},
         },
@@ -79,7 +79,7 @@ CASES: tuple[ShowcaseCase, ...] = (
             "why the intake was accepted, held for review, or escalated."
         ),
         workflow="document_intake",
-        capabilities=("structured extraction", "validation", "workflow routing", "artifacts"),
+        capabilities=("LLM explanation", "structured extraction", "policy validation", "workflow routing"),
         sample_input={
             "message": "Today Acme Ltd submitted a German renewal request for contract AC-1042."
         },
@@ -95,7 +95,7 @@ CASES: tuple[ShowcaseCase, ...] = (
         tagline="Remember a preference, then apply it on a later request.",
         story="Run step 1 and step 2 with the same session key to see persisted memory change the result.",
         workflow="preference_assistant",
-        capabilities=("Hive Mind", "session memory", "fact integrity", "session isolation"),
+        capabilities=("LLM personalization", "Hive Mind", "session memory", "fact integrity"),
         sample_input={"session_key": "preference-demo", "action": "remember", "preference": {"response_style": "concise"}},
         examples=(
             {"title": "Step 1 · Remember", "description": "Stores a user-supplied response style in session preference-demo.", "input": {"session_key": "preference-demo", "action": "remember", "preference": {"response_style": "concise"}}},
@@ -110,7 +110,7 @@ CASES: tuple[ShowcaseCase, ...] = (
         tagline="Inspect a small CSV with one fixed command in the configured runtime.",
         story="Validate input and return row and missing-value counts from an isolated process.",
         workflow="runtime_data_check",
-        capabilities=("OS runtime", "isolated process", "fixed command", "structured report"),
+        capabilities=("LLM explanation", "OS runtime", "isolated process", "fixed command"),
         sample_input={"csv": "name,email\nAda,ada@example.test\nGrace,"},
         examples=(
             {"title": "Missing value", "description": "Reports two rows and one missing email.", "input": {"csv": "name,email\nAda,ada@example.test\nGrace,"}},

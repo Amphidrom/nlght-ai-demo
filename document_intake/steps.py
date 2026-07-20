@@ -114,9 +114,17 @@ class IntakeRespondStep(StepBase):
     TYPE: ClassVar[str] = "intake_respond"
 
     async def run(self, ctx: WorkflowStepContext) -> StepResult:
+        if ctx.llm is None:
+            return StepResult(ctx=ctx, verdict="failed")
         intake: dict[str, Any] = dict(ctx.metadata.get("intake") or {})
         expected_status = str(self.config.get("status", intake.get("routing_status", "needs_review")))
         intake["routing_status"] = expected_status
-        artifact = json.dumps(intake, indent=2, ensure_ascii=False)
-        await ctx.emitter.emit(Signal(role="assistant", content=artifact, kind="result"))
+        system = (
+            "You are a document-intake assistant. Explain the extracted fields, every named policy "
+            "evaluation, missing data, and final routing decision from the supplied intake record. "
+            "Do not invent fields or change policy outcomes. For needs_review, tell the user what must be provided."
+        )
+        user = json.dumps({"validated_intake": intake}, ensure_ascii=False)
+        await ctx.emitter.emit(Signal("assistant", "Generating policy-aware intake explanation", kind="status"))
+        await ctx.llm.call(messages=[{"role": "system", "content": system}, {"role": "user", "content": user}], temperature=0.1)
         return StepResult(ctx=ctx, verdict="done")

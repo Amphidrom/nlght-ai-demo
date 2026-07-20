@@ -8,6 +8,7 @@ from document_intake.steps import IntakeExtractStep, IntakeRespondStep, IntakeVa
 from incident_triage.steps import IncidentClassifyStep, IncidentNormalizeStep, IncidentRespondStep
 from preference_assistant.steps import PreferenceRememberStep, PreferenceRespondStep
 from product_faq.steps import ProductAnswerStep, ProductRetrieveStep
+from shipping_quote.steps import ShippingQuoteStep
 from shipping_quote.tool import ShippingRateTool
 from runtime_data_check.steps import RuntimeCsvCheckStep, RuntimeCsvValidateStep
 from nlght.core.signals.signal import Signal
@@ -23,6 +24,23 @@ class Emitter:
 
     async def emit(self, signal: Signal) -> None:
         self.signals.append(signal)
+
+
+class RecordingLlm:
+    def __init__(self, emitter: Emitter, response: str = "model response") -> None:
+        self.emitter = emitter
+        self.response = response
+        self.calls: list[dict] = []
+
+    async def call(self, messages, *, temperature=None) -> None:
+        self.calls.append({"messages": messages, "temperature": temperature})
+        await self.emitter.emit(Signal("assistant", self.response, kind="result"))
+
+
+def with_llm(ctx: WorkflowStepContext, response: str = "model response") -> RecordingLlm:
+    llm = RecordingLlm(ctx.emitter, response)  # type: ignore[arg-type]
+    ctx.llm = llm  # type: ignore[assignment]
+    return llm
 
 
 class FakeStoreCoordinator:
@@ -124,9 +142,11 @@ class DocumentIntakeTests(unittest.IsolatedAsyncioTestCase):
         extracted = await IntakeExtractStep(config={}).run(ctx)
         validated = await IntakeValidateStep(config={}).run(extracted.ctx)
         self.assertEqual("accepted", validated.verdict)
+        llm = with_llm(validated.ctx, "Contract AC-1042 passed CONTRACT-01 and was accepted.")
         response = await IntakeRespondStep(config={"status": "accepted"}).run(validated.ctx)
         self.assertEqual("done", response.verdict)
-        self.assertIn('"contract_id": "AC-1042"', response.ctx.emitter.signals[-1].content)
+        self.assertIn("AC-1042", llm.calls[0]["messages"][1]["content"])
+        self.assertIn("CONTRACT-01", llm.calls[0]["messages"][1]["content"])
 
     async def test_missing_fields_routes_to_manual_review(self) -> None:
         ctx = context("A renewal request arrived today.")
@@ -170,11 +190,13 @@ class PreferenceAssistantTests(unittest.IsolatedAsyncioTestCase):
         })
         apply_ctx.store_coordinator = store  # type: ignore[assignment]
         applied = await PreferenceRememberStep(config={}).run(apply_ctx)
+        llm = with_llm(applied.ctx, "Test backups regularly.")
         response = await PreferenceRespondStep(config={}).run(applied.ctx)
         result = response.ctx.emitter.signals[-1].content
-        self.assertIn('"status": "preference_applied"', result)
-        self.assertIn('"response_style": "concise"', result)
         self.assertIn("Test backups regularly", result)
+        prompt = llm.calls[0]["messages"][1]["content"]
+        self.assertIn('"response_style": "concise"', prompt)
+        self.assertIn("Explain why restore tests matter", prompt)
 
 
 class ProductFaqTests(unittest.IsolatedAsyncioTestCase):
@@ -182,21 +204,25 @@ class ProductFaqTests(unittest.IsolatedAsyncioTestCase):
         ctx = context("How long can I recover a deleted project?")
         retrieved = await ProductRetrieveStep(config={}).run(ctx)
         self.assertEqual("found", retrieved.verdict)
+        llm = with_llm(retrieved.ctx, "Projects remain recoverable for 30 days. [MANUAL-204]")
         answered = await ProductAnswerStep(config={}).run(retrieved.ctx)
         self.assertIn("[MANUAL-204]", answered.ctx.emitter.signals[-1].content)
+        self.assertIn("MANUAL-204", llm.calls[0]["messages"][1]["content"])
 
     async def test_unsupported_question_is_not_answered(self) -> None:
         ctx = context("Does it support satellite telemetry?")
         retrieved = await ProductRetrieveStep(config={}).run(ctx)
         self.assertEqual("not_found", retrieved.verdict)
+        llm = with_llm(
+            retrieved.ctx,
+            "I cannot answer this question from the available manuals. Open Help > Contact Support.",
+        )
         answered = await ProductAnswerStep(config={}).run(retrieved.ctx)
         result = answered.ctx.emitter.signals[-1].content
-        self.assertIn('"status": "human_review_required"', result)
         self.assertIn("I cannot answer this question", result)
         self.assertIn("Contact Support", result)
-        self.assertIn("support specialist", result)
-        self.assertIn('"sources": []', result)
         self.assertNotIn("MANUAL-", result)
+        self.assertIn('"retrieved_manuals": []', llm.calls[0]["messages"][1]["content"])
 
     async def test_product_name_and_support_are_not_retrieval_evidence(self) -> None:
         ctx = context("Does Northstar Desk support satellite telemetry?")
@@ -219,6 +245,19 @@ class ShippingToolTests(unittest.IsolatedAsyncioTestCase):
         result = await tool.quote(weight_kg=3.5, zone="eu", express=True)
         self.assertIn('"amount": 21.73', result)
 
+    async def test_quote_step_passes_tool_result_to_model(self) -> None:
+        class QuoteContract:
+            async def execute(self, **shipment):
+                return '{"amount": 21.73, "currency": "EUR"}'
+
+        ctx = context("", payload={"shipment": {"weight_kg": 3.5, "zone": "eu", "express": True}})
+        ctx.metadata = {"shipment": {"weight_kg": 3.5, "zone": "eu", "express": True}}
+        ctx.tools = SimpleNamespace(get_or_none=lambda name: QuoteContract())  # type: ignore[assignment]
+        llm = with_llm(ctx, "The verified rate is EUR 21.73.")
+        result = await ShippingQuoteStep(config={}).run(ctx)
+        self.assertEqual("done", result.verdict)
+        self.assertIn("21.73", llm.calls[0]["messages"][1]["content"])
+
 
 class RuntimeDataCheckTests(unittest.IsolatedAsyncioTestCase):
     async def test_csv_is_passed_to_fixed_process_environment(self) -> None:
@@ -233,11 +272,13 @@ class RuntimeDataCheckTests(unittest.IsolatedAsyncioTestCase):
         runtime = Runtime()
         ctx.os_runtime = runtime
         validated = await RuntimeCsvValidateStep(config={}).run(ctx)
+        llm = with_llm(validated.ctx, "The CSV has 2 rows and 1 missing value.")
         checked = await RuntimeCsvCheckStep(config={}).run(validated.ctx)
         self.assertEqual("done", checked.verdict)
         self.assertEqual(ctx.metadata["csv"], runtime.env["CSV_INPUT"])
         self.assertEqual(["python", "-c"], runtime.command[:2])
         self.assertEqual("/", runtime.cwd)
+        self.assertIn('"missing_values": 1', llm.calls[0]["messages"][1]["content"])
 
     async def test_docker_runtime_config_does_not_require_a_workspace_mount(self) -> None:
         config = Path("docker/platform.yaml").read_text(encoding="utf-8")
@@ -253,8 +294,11 @@ class IncidentTriageTests(unittest.IsolatedAsyncioTestCase):
         normalized = await IncidentNormalizeStep(config={}).run(ctx)
         classified = await IncidentClassifyStep(config={}).run(normalized.ctx)
         self.assertEqual("urgent", classified.verdict)
+        llm = with_llm(classified.ctx, "High severity. Page the checkout owner.")
         response = await IncidentRespondStep(config={"route": "urgent_response"}).run(classified.ctx)
-        self.assertIn('"severity": "high"', response.ctx.emitter.signals[-1].content)
+        self.assertEqual("done", response.verdict)
+        self.assertIn('"severity": "high"', llm.calls[0]["messages"][1]["content"])
+        self.assertIn('"selected_route": "urgent_response"', llm.calls[0]["messages"][1]["content"])
 
     async def test_invalid_metrics_take_manual_review_path(self) -> None:
         ctx = context("Triage alert", payload={"alert": {"error_rate": "not-a-number"}})

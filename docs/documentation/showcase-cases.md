@@ -4,6 +4,12 @@ The gallery contains six closed examples. Open a case and select one of its scen
 the editable JSON input. Each scenario is designed to expose a different workflow outcome, not
 just provide different wording.
 
+Each successful scenario performs a real call to the configured model provider. The model receives
+the request-specific input together with trusted case evidence: retrieved manuals, a tool result,
+severity classification, policy evaluations, persisted preferences, or an isolated-runtime report.
+Deterministic components own factual calculations and routing; the model owns language and
+contextual explanation.
+
 The portal follows the nlght.ai dark teal visual system and intentionally uses no animations,
 motion effects, or animated backgrounds. Interaction state is communicated through static color,
 border, text, and focus changes.

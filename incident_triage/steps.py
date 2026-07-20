@@ -55,13 +55,16 @@ class IncidentRespondStep(StepBase):
     TYPE: ClassVar[str] = "incident_respond"
 
     async def run(self, ctx: WorkflowStepContext) -> StepResult:
+        if ctx.llm is None:
+            return StepResult(ctx=ctx, verdict="failed")
         incident: dict[str, Any] = dict(ctx.metadata.get("incident") or {})
         route = str(self.config.get("route", "manual_review"))
-        actions = (
-            ["Page the service owner", "Check the latest deployment", "Protect downstream dependencies"]
-            if route == "urgent_response"
-            else ["Create a triage ticket", "Inspect recent service metrics"]
+        system = (
+            "You are an incident coordinator. Explain the deterministic severity and route supplied in "
+            "the user message, then recommend two or three proportionate next actions. Do not alter the "
+            "metrics, severity, or route. Make clear which evidence caused the route."
         )
-        result = {**incident, "route": route, "recommended_actions": actions}
-        await ctx.emitter.emit(Signal("assistant", json.dumps(result, indent=2), kind="result"))
+        user = json.dumps({"incident": incident, "selected_route": route})
+        await ctx.emitter.emit(Signal("assistant", "Generating incident guidance", kind="status"))
+        await ctx.llm.call(messages=[{"role": "system", "content": system}, {"role": "user", "content": user}], temperature=0.2)
         return StepResult(ctx=ctx, verdict="done")
