@@ -13,6 +13,18 @@ let selected = null;
 
 const escapeHtml = value => String(value).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 
+// A case can be unavailable because its workflow was never seeded. When it also
+// declares optional integrations, say which ones rather than leaving a greyed
+// out card with no explanation.
+function requirementNote(item) {
+  const needs = item.optional_integrations || [];
+  if (!needs.length) return '';
+  const label = needs.map(escapeHtml).join(' · ');
+  return item.available
+    ? `<p class="requires">Optional stack in use: ${label}</p>`
+    : `<p class="requires">Needs the optional stack: ${label}</p>`;
+}
+
 async function load() {
   const [catalog, health] = await Promise.all([
     fetch('/demo/api/cases').then(r => r.json()),
@@ -24,10 +36,11 @@ async function load() {
   gallery.innerHTML = catalog.cases.map((item, index) => `
     <article class="case ${item.available ? '' : 'unavailable'}">
       <button data-id="${item.id}" ${item.available ? '' : 'disabled'}>
-        <span class="case-number">0${index + 1}</span>
+        <span class="case-number">${String(index + 1).padStart(2, '0')}</span>
         <h3>${escapeHtml(item.title)}</h3>
         <p>${escapeHtml(item.tagline)}</p>
         <div class="tags">${item.capabilities.slice(0, 4).map(c => `<span class="tag">${escapeHtml(c)}</span>`).join('')}</div>
+        ${requirementNote(item)}
       </button>
     </article>`).join('');
   gallery.querySelectorAll('button').forEach(button => button.addEventListener('click', () => openCase(catalog.cases.find(c => c.id === button.dataset.id))));
@@ -37,7 +50,9 @@ function openCase(item) {
   selected = item;
   title.textContent = item.title;
   story.textContent = item.story;
-  caps.textContent = item.capabilities.join(' · ');
+  caps.textContent = (item.optional_integrations || []).length
+    ? `${item.capabilities.join(' · ')} — requires ${item.optional_integrations.join(' and ')}`
+    : item.capabilities.join(' · ');
   input.value = JSON.stringify(item.sample_input, null, 2);
   examples.innerHTML = (item.examples || []).map((example, index) => `
     <button class="example ${index === 0 ? 'selected' : ''}" data-index="${index}">

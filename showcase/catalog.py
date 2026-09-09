@@ -117,6 +117,27 @@ CASES: tuple[ShowcaseCase, ...] = (
             {"title": "Complete data", "description": "Reports zero missing values.", "input": {"csv": "name,email\nAda,ada@example.test\nGrace,grace@example.test"}},
         ),
     ),
+    ShowcaseCase(
+        id="knowledge-base",
+        title="Knowledge Base",
+        tagline="Turn a handbook into reviewed claims, then answer from them.",
+        story=(
+            "Ingest the local Northstar Desk handbook into the knowledge graph, then ask it a "
+            "question. The two are separate runs: a question is answered from what an earlier "
+            "ingestion established, never from the document in the same request."
+        ),
+        workflow="knowledge_base",
+        capabilities=("knowledge ingestion", "claim extraction", "reviewed retrieval", "grounded answer"),
+        optional_integrations=("knowledge database", "OpenSearch"),
+        advanced=True,
+        sample_input={"action": "ingest"},
+        examples=(
+            {"title": "Step 1 · Ingest the handbook", "description": "A model reads three handbook pages; the pipeline structures, deduplicates, scores and persists the claims.", "input": {"action": "ingest"}},
+            {"title": "Step 2 · Ask about roles", "description": "Answered from the persisted claims, not from the page they came from.", "input": {"action": "ask", "message": "Which team roles exist and who may change billing?"}},
+            {"title": "Step 2 · Ask about retention", "description": "A second question against the same graph, covering a different handbook page.", "input": {"action": "ask", "message": "How long is a deleted project recoverable?"}},
+            {"title": "Unsupported question", "description": "Nothing in the graph matches, and the case says so instead of inventing an answer.", "input": {"action": "ask", "message": "Does Northstar Desk support satellite telemetry?"}},
+        ),
+    ),
 )
 
 CASE_BY_ID = {case.id: case for case in CASES}

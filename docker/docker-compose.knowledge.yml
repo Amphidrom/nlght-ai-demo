@@ -1,0 +1,51 @@
+# Optional stack for the Knowledge Base case only. The other six cases do not
+# need it, which is why it is a separate file rather than more services in
+# docker-compose.yml.
+#
+#   docker compose -f docker/docker-compose.knowledge.yml up -d
+#
+# Then migrate the knowledge database — it has its own migration chain and takes
+# its URL explicitly, because the knowledge database is never named
+# platform-wide:
+#
+#   uv run nlght-ai migrate-knowledge \
+#     -x url=postgresql+asyncpg://knowledge:knowledge@localhost:5434/knowledge
+#
+# No Qdrant and no embedding provider: reviewed claims are found by identity in
+# PostgreSQL and by keyword in OpenSearch. Vectors belong to the data pipeline,
+# which this case does not run.
+services:
+  knowledge-database:
+    image: postgres:latest
+    restart: always
+    ports:
+      - 5434:5432
+    environment:
+      POSTGRES_USER: knowledge
+      POSTGRES_PASSWORD: knowledge
+      POSTGRES_DB: knowledge
+    volumes:
+      - knowledge_db_data:/var/lib/postgresql/data
+
+  knowledge-search:
+    image: opensearchproject/opensearch:2
+    restart: always
+    ports:
+      - 9200:9200
+    environment:
+      # Single node, no TLS, no auth: a local demo index, never a deployment.
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+    ulimits:
+      memlock: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - knowledge_search_data:/usr/share/opensearch/data
+
+volumes:
+  knowledge_db_data:
+  knowledge_search_data:
