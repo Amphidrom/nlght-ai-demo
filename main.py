@@ -5,6 +5,12 @@
 
 from document_intake import IntakeExtractStep, IntakeRespondStep, IntakeValidateStep
 from incident_triage import IncidentClassifyStep, IncidentNormalizeStep, IncidentRespondStep
+from knowledge_base import (
+    KnowledgeAnswerStep,
+    KnowledgeIngestReportStep,
+    KnowledgeNothingFoundStep,
+    KnowledgeRouteStep,
+)
 from preference_assistant import PreferenceRememberStep, PreferenceRespondStep
 from product_faq import ProductAnswerStep, ProductRetrieveStep
 from runtime_data_check import RuntimeCsvCheckStep, RuntimeCsvValidateStep
@@ -32,6 +38,10 @@ for step in (
     PreferenceRespondStep,
     RuntimeCsvValidateStep,
     RuntimeCsvCheckStep,
+    KnowledgeRouteStep,
+    KnowledgeIngestReportStep,
+    KnowledgeAnswerStep,
+    KnowledgeNothingFoundStep,
 ):
     step_registry.register(step)
 

@@ -10,6 +10,10 @@ This repository is a local-first showcase for the nlght-ai Runtime Platform. It 
 4. **Policy-Aware Document Intake** — structured extraction, validation, and workflow routing.
 5. **Preference Assistant** — persist only an explicit user preference in Hive Mind.
 6. **Runtime Data Check** — inspect a small CSV with one fixed command in an isolated process.
+7. **Knowledge Base** *(optional stack)* — ingest a handbook into reviewed claims, then answer from them.
+
+Cases 1–6 run on the base stack. Case 7 needs the optional knowledge stack described below and is
+shown as unavailable until it is set up.
 
 Each case includes selectable scenarios in the portal. They are not cosmetic presets: the
 variants exercise success, routing, validation, remembered session state, or an honest
@@ -32,8 +36,49 @@ hard-coded assistant prose.
   with the same `session_key`. The second result shows the loaded preference and a visibly
   concise answer. Change the session key to demonstrate session isolation.
 
+- **Knowledge Base:** run **Step 1 · Ingest the handbook** once, then ask a question. The answer
+  comes from claims a model extracted in the *earlier* run — the handbook itself is never in the
+  question's request. Ask the satellite question to see the case refuse rather than improvise.
+
 The intake policies are intentionally transparent demo rules, not a production compliance
 policy set.
+
+## Platform requirement
+
+This gallery targets **nlght-ai 0.1.3 or newer** (`nlght-ai[docker,hive-mind]>=0.1.3`). It does not
+run on 0.1.x: every case was migrated to two APIs that 0.1.x does not have.
+
+**Typed messages with explicit authority.** A step no longer hands the model a list of
+`{"role": ...}` dictionaries. Instructions are `TrustedInstructionMessage` — the only message type
+that reaches a provider's system channel, and one only installed deployment code can construct.
+Everything the runtime *established* rather than authored — a retrieved manual passage, a tool
+result, a deterministic policy evaluation, a sandboxed report, a persisted preference — becomes a
+`ContextRecord` and reaches the model as escaped, inert `untrusted_data`. `compose_prompt()` joins
+the two domains and `compose_messages()` places the context immediately before the current request:
+
+```python
+records = [evidence(
+    record_id="manual:MANUAL-204",
+    kind=ContextKind.RETRIEVAL,
+    content=article,
+    source="product_manual",
+    document_id="MANUAL-204",
+)]
+messages = compose_messages(compose_prompt(_INSTRUCTIONS, records), conversation)
+await ctx.llm.call(messages=messages, temperature=0.1)
+```
+
+`grounding/context.py` holds the two helpers every case shares; each step still builds and composes
+its own records, because that boundary is the thing worth reading.
+
+**Mandatory action semantics on tools.** A `ToolSignature` without an `action` is *unknown*, never
+read-only, and an execution-capable catalog refuses it — `ShippingRateTool` declares its rate table
+as a pure request-scoped calculation with no side effect and no egress. Steps invoke tools only
+through `ctx.tools.execute({"name": ..., "input": ...})`, which validates and binds arguments,
+resolves those semantics, and applies policy before any method runs.
+
+`docs/` and the tests assert both boundaries: evidence must appear in the untrusted context of a
+call and must *not* appear in its trusted instructions.
 
 ## Start locally
 
@@ -104,6 +149,72 @@ GitHub, web search, vector databases, or external knowledge stores.
 The repository intentionally contains only the six active showcase packages, their shared portal
 and invocation helper, configuration, seeds, tests, and documentation. Retired example modules are
 not part of this gallery.
+
+## Optional: the Knowledge Base stack
+
+Case 7 is the only one that needs anything beyond the base setup, which is why it ships separately:
+its workflow is not part of `seed.sql`, so the portal shows it as unavailable until you opt in.
+
+It runs the **knowledge** pipeline, not the data pipeline. A model reads the handbook and proposes
+atomic claims; ten structural refinement steps canonicalize, validate, split, merge, deduplicate,
+filter and score them; then they are persisted and indexed. Asking a question queries those claims —
+*what is asserted* — rather than the page they came from.
+
+That choice is what keeps the footprint small. Claims are found by identity in PostgreSQL and by
+keyword in OpenSearch, so this case needs **no vector store and no embedding provider** — and
+therefore no multi-gigabyte torch download in the default install.
+
+```powershell
+# 1. Optional Python extra (OpenSearch client only)
+uv sync --extra knowledge
+
+# 2. Knowledge database and OpenSearch
+docker compose -f docker/docker-compose.knowledge.yml up -d
+
+# 3. The knowledge database has its own migration chain and takes its URL
+#    explicitly — it is never named platform-wide.
+uv run nlght-ai migrate-knowledge -x url=postgresql+asyncpg://knowledge:knowledge@localhost:5434/knowledge
+
+# 4. Seed the case (from the parent directory of this repository)
+psql $env:DATABASE_URL -f demo/seed/07_knowledge_base.sql
+```
+
+`platform.yaml` needs no changes: both stores are resource rows carrying their own `pg_url`, because
+the knowledge database is reached only through the activations that use it. If your OpenSearch or
+knowledge database runs elsewhere, edit the two `INSERT INTO resources` rows at the end of
+`seed/07_knowledge_base.sql`.
+
+Then restart the demo and run the case twice — once to ingest, once to ask. The first run reports
+what it established, in these fields:
+
+```json
+{
+  "documents_acquired": 0,
+  "units_parsed": 0,
+  "claims_extracted": 0,
+  "claims_quarantined": 0,
+  "claims_persisted": 0,
+  "claims_retired": 0
+}
+```
+
+`documents_acquired` is 3 for the shipped corpus and `claims_quarantined` is 0 under this case's
+review policy. The other counts depend on your extraction model and are not fixed — that is the
+point of reporting them rather than asserting them.
+
+> **`claims_quarantined: 0` is a demo choice, not a production default.** The shipped default for
+> `knowledge.review_flag` is `policy: all` — every claim is quarantined and stays invisible to every
+> retrieval path until a person approves it. This case sets `policy: thresholds` with
+> `min_confidence: 0.0` so that ingest-then-ask is two steps instead of three. Loosening that policy
+> in a real deployment should follow from seeing what your own source actually produces.
+
+Re-running the ingest step costs nothing: `knowledge.extract` records what it read, and a document
+whose content and extraction version are unchanged is skipped rather than sent to the model again.
+To hold one run against the one before it:
+
+```powershell
+uv run nlght-ai knowledge-report -x url=postgresql+asyncpg://knowledge:knowledge@localhost:5434/knowledge
+```
 
 ## API quickstart
 

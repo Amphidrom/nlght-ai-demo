@@ -7,7 +7,19 @@ name = "nlght-ai-demo"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
-    "nlght-ai[docker,hive-mind]",
+    # Requires the canonical-message and action-semantics APIs: typed
+    # TrustedInstruction/UserMessage/ContextRecord prompts, and mandatory
+    # action semantics on every tool signature. Both landed in 0.1.3.
+    "nlght-ai[docker,hive-mind]>=0.1.3",
+]
+
+[project.optional-dependencies]
+# The Knowledge Base case only. Reviewed claims are found by identity in
+# PostgreSQL and by keyword in OpenSearch, so this needs the lexical store and
+# neither a vector store nor an embedding provider — which is what keeps torch
+# out of the default install.
+knowledge = [
+    "nlght-ai[lexical-store]",
 ]
 
 [project.scripts]
@@ -22,3 +34,4 @@ py-modules = ["main"]
 
 [tool.setuptools.package-data]
 showcase = ["static/*.html", "static/*.css", "static/*.js"]
+knowledge_base = ["corpus/*.md"]
