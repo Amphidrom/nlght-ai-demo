@@ -47,6 +47,8 @@ input[type=number] { width: 7rem; padding: .45rem .6rem; color: var(--ink); back
 #map .player circle { stroke: var(--paper); stroke-width: 1.5; }
 #map .player text { fill: var(--paper); font-size: 9px; font-weight: 700; }
 #map .body { fill: none; stroke: var(--danger); stroke-width: 2; }
+#map .room.alarm rect { stroke: var(--danger); stroke-width: 2; }
+#map .alarm-text { fill: var(--danger); font-size: 12px; }
 .feed { list-style: none; margin: 0; padding: 0; max-height: 470px; overflow-y: auto; font-size: .78rem; }
 .feed li { padding: .4rem 0; border-bottom: 1px solid var(--line); display: grid; gap: .15rem; }
 .feed .meta { color: var(--muted); font-size: .7rem; }

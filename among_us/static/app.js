@@ -157,9 +157,10 @@ function drawMap() {
     if (!LAYOUT[a] || !LAYOUT[b]) continue;
     root.append(svg("line", { class: "corridor", x1: LAYOUT[a][0], y1: LAYOUT[a][1], x2: LAYOUT[b][0], y2: LAYOUT[b][1] }));
   }
+  const alarm = state.spectator?.sabotage?.system;
   for (const room of state.map.rooms) {
     const [x, y] = LAYOUT[room] || [20, 20];
-    const group = svg("g", { class: "room" });
+    const group = svg("g", { class: room === alarm ? "room alarm" : "room" });
     group.append(svg("rect", { x: x - 48, y: y - 24, width: 96, height: 48, rx: 6 }));
     const label = svg("text", { x: x - 44, y: y - 12 });
     label.textContent = room.replace("_", " ");
@@ -168,6 +169,11 @@ function drawMap() {
   }
   const view = state.spectator;
   if (!view) return;
+  if (view.sabotage) {
+    const banner = svg("text", { x: 20, y: 432, class: "alarm-text" });
+    banner.textContent = `${view.sabotage.system} sabotage · ${view.sabotage.ticks_left} ticks left`;
+    root.append(banner);
+  }
   const players = Object.keys(state.match.egos);
   const reveal = document.getElementById("reveal").checked;
   const byRoom = {};

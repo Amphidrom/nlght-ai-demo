@@ -40,6 +40,8 @@ class ActionKind(StrEnum):
     KILL = "KILL"
     CALL_MEETING = "CALL_MEETING"
     SAY = "SAY"
+    SABOTAGE = "SABOTAGE"
+    VENT = "VENT"
     VOTE = "VOTE"
     SKIP_VOTE = "SKIP_VOTE"
     WAIT = "WAIT"
@@ -58,6 +60,13 @@ class EventKind(StrEnum):
     VOTE_CAST = "VOTE_CAST"
     EJECTED = "EJECTED"
     NO_EJECTION = "NO_EJECTION"
+    #: The impostor's own kill. Only the killer perceives it.
+    KILL_COMMITTED = "KILL_COMMITTED"
+    #: Someone was seen entering or leaving a vent; ``text`` says which.
+    VENT_SEEN = "VENT_SEEN"
+    #: A critical sabotage alarm started (``target`` is the system) or was fixed.
+    SABOTAGE_ALARM = "SABOTAGE_ALARM"
+    SABOTAGE_FIXED = "SABOTAGE_FIXED"
 
 
 @dataclass(frozen=True)
@@ -119,6 +128,8 @@ class Observation:
     decision_reason: str = ""
     #: Everyone in the lobby, humans included — public knowledge in the real game.
     roster: tuple[str, ...] = ()
+    #: The critical sabotage everyone can see right now ("reactor", "o2"), if any.
+    alarm: str | None = None
 
 
 @dataclass(frozen=True)
@@ -312,5 +323,6 @@ def observation_from_dict(raw: Any) -> Observation:
         ),
         decision_reason=str(body.get("decision_reason", "")),
         roster=_strings(body.get("roster"), "roster"),
+        alarm=_optional_str(body.get("alarm"), "alarm"),
     )
 

@@ -170,6 +170,22 @@ accuracy, unsupported claims. A baseline recalls everything exactly by construct
 the comparison answers is what the ego architecture buys in context size, and how it changes votes
 and claims — which only a run with a real model shows.
 
+## Playing the impostor
+
+Any agent can be dealt the impostor role; the game, not the agent, decides. An impostor agent knows
+its partners and gets these extra legal actions, in the simulation and on the server alike:
+
+| Action | Effect | What others perceive |
+|---|---|---|
+| `KILL <player>` | only a crewmate it can see; it remembers the kill as `KILL_COMMITTED` (only the killer perceives that kind) | `KILL_WITNESSED` for anyone in sight |
+| `VENT <room>` | travel through the vent network to a reachable room | `VENT_SEEN` for anyone at the entry or exit — nearly as damning as a witnessed kill |
+| `SABOTAGE reactor\|o2` | a critical alarm; the crew loses unless someone reaches the room in time (fixing is a reflex) | `SABOTAGE_ALARM` for everyone, and `alarm` in every observation; nobody perceives who pulled it |
+| `REPORT <own victim>` | self-reporting as cover is allowed | an ordinary report |
+
+Fake tasks look like real ones to everyone else. After a kill the impostor is at a decision point
+again (`observed: KILL_COMMITTED`). The evaluation adds `impostor_play`: kills and how many were
+witnessed, vent uses and sightings, sabotages started, fixed and won, self-reports.
+
 ## Location claims
 
 A meeting statement can carry structured claims — `{"player": "echo", "room": "admin", "tick": 12}`

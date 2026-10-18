@@ -2,19 +2,19 @@
   "type": "decision_request",
   "protocol": 1,
   "observation": {
-    "agent_id": "cleo",
+    "agent_id": "bolt",
     "tick": 1,
     "phase": "TASKS",
     "self_state": {
-      "player_id": "cleo",
+      "player_id": "bolt",
       "room": "cafeteria",
       "role": "CREWMATE",
       "alive": true,
       "tasks_remaining": [
         "fix_wiring#0",
-        "start_reactor#1",
+        "align_engine_output#1",
         "divert_power#2",
-        "upload_data#3"
+        "divert_power#3"
       ],
       "kill_ready": false,
       "known_impostors": []
@@ -31,7 +31,7 @@
         "alive": true
       },
       {
-        "player_id": "bolt",
+        "player_id": "cleo",
         "room": "cafeteria",
         "alive": true
       },
@@ -44,7 +44,7 @@
     "visible_bodies": [],
     "events": [
       {
-        "event_id": "cleo-00001",
+        "event_id": "bolt-00001",
         "tick": 1,
         "kind": "PLAYER_ENTERED",
         "room": "cafeteria",
@@ -53,7 +53,7 @@
         "text": null
       },
       {
-        "event_id": "cleo-00002",
+        "event_id": "bolt-00002",
         "tick": 1,
         "kind": "PLAYER_ENTERED",
         "room": "cafeteria",
@@ -62,16 +62,16 @@
         "text": null
       },
       {
-        "event_id": "cleo-00003",
+        "event_id": "bolt-00003",
         "tick": 1,
         "kind": "PLAYER_ENTERED",
         "room": "cafeteria",
-        "actor": "bolt",
+        "actor": "cleo",
         "target": null,
         "text": null
       },
       {
-        "event_id": "cleo-00004",
+        "event_id": "bolt-00004",
         "tick": 1,
         "kind": "PLAYER_ENTERED",
         "room": "cafeteria",
@@ -139,7 +139,7 @@
       },
       {
         "action": "DO_TASK",
-        "target": "start_reactor#1"
+        "target": "align_engine_output#1"
       },
       {
         "action": "DO_TASK",
@@ -147,7 +147,7 @@
       },
       {
         "action": "DO_TASK",
-        "target": "upload_data#3"
+        "target": "divert_power#3"
       },
       {
         "action": "CALL_MEETING",
@@ -165,6 +165,7 @@
       "cleo",
       "dax",
       "host"
-    ]
+    ],
+    "alarm": null
   }
 }

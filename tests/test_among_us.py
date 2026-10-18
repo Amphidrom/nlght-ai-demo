@@ -786,3 +786,90 @@ class ServerContractTests(unittest.TestCase):
     def test_a_bridge_match_needs_no_player_map(self) -> None:
         options = _match_options({"environment": "bridge"})
         self.assertEqual({}, options["assignment"])
+
+
+class ImpostorModeTests(unittest.TestCase):
+    def _engine(self) -> tuple[SimEngine, str, list[str]]:
+        engine = SimEngine(["a", "b", "c", "d", "e"], seed=2, kill_cooldown=0)
+        impostor = next(p for p in engine.player_ids if engine.role_of(p) is Role.IMPOSTOR)
+        crew = [p for p in engine.player_ids if p != impostor]
+        return engine, impostor, crew
+
+    def _place(self, engine: SimEngine, rooms: dict[str, str]) -> None:
+        for pid, room in rooms.items():
+            engine._players[pid].room = room
+
+    def test_only_impostors_vent_and_are_seen_doing_it(self) -> None:
+        engine, impostor, crew = self._engine()
+        self._place(engine, {impostor: "electrical", crew[0]: "electrical", crew[1]: "medbay", crew[2]: "admin", crew[3]: "admin"})
+        legal = {(a.action, a.target) for a in engine.legal_actions(impostor)}
+        self.assertIn((ActionKind.VENT, "medbay"), legal)
+        self.assertIn((ActionKind.VENT, "security"), legal)
+        self.assertFalse(any(a.action is ActionKind.VENT for a in engine.legal_actions(crew[0])))
+        self.assertTrue(engine.submit(SemanticAction(impostor, ActionKind.VENT, "medbay")).accepted)
+        engine.advance()
+        self.assertEqual("medbay", engine._players[impostor].room)
+        seen = {pid: [e.text for e in engine.observe(pid).events if e.kind is EventKind.VENT_SEEN] for pid in crew[:2]}
+        self.assertEqual({crew[0]: ["entered"], crew[1]: ["exited"]}, seen)
+
+    def test_a_sabotage_alarms_everyone_and_the_crew_fixes_it_by_going_there(self) -> None:
+        engine, impostor, crew = self._engine()
+        engine._sabotage_cooldown = 0
+        self.assertTrue(engine.submit(SemanticAction(impostor, ActionKind.SABOTAGE, "reactor")).accepted)
+        engine.advance()
+        observation = engine.observe(crew[0])
+        self.assertEqual("reactor", observation.alarm)
+        self.assertIn(EventKind.SABOTAGE_ALARM, [e.kind for e in observation.events])
+        self.assertIn("observed", observation.decision_reason)
+        # Nobody knows who pulled it.
+        self.assertTrue(all(e.actor is None for e in observation.events if e.kind is EventKind.SABOTAGE_ALARM))
+        self.assertEqual(ActionKind.MOVE_TO, fallback_action(observation, {}, set()).action)
+        self._place(engine, {crew[0]: "reactor"})
+        engine.advance()
+        self.assertIsNone(engine.observe(crew[1]).alarm)
+        self.assertEqual(1, sum(1 for e in engine.events if e.kind == "SABOTAGE_FIXED"))
+
+    def test_an_unfixed_sabotage_wins_for_the_impostors(self) -> None:
+        engine, impostor, crew = self._engine()
+        engine._sabotage_cooldown = 0
+        self._place(engine, {pid: "admin" for pid in crew})
+        engine.submit(SemanticAction(impostor, ActionKind.SABOTAGE, "o2"))
+        end = None
+        for _ in range(15):
+            end = engine.advance()
+            if end:
+                break
+        self.assertEqual("impostors", end.winner)
+        self.assertIn("o2", end.reason)
+
+    def test_the_killer_remembers_its_kill_and_nobody_else_can(self) -> None:
+        engine, impostor, crew = self._engine()
+        self._place(engine, {impostor: "admin", crew[0]: "admin", crew[1]: "storage", crew[2]: "storage", crew[3]: "storage"})
+        engine.submit(SemanticAction(impostor, ActionKind.KILL, crew[0]))
+        engine.advance()
+        observation = engine.observe(impostor)
+        perceive(observation, impostor)
+        own = [e for e in observation.events if e.kind is EventKind.KILL_COMMITTED]
+        self.assertEqual([(impostor, crew[0])], [(e.actor, e.target) for e in own])
+        self.assertIn("KILL_COMMITTED", observation.decision_reason)
+        # The killer may report its own victim as cover.
+        self.assertIn((ActionKind.REPORT, f"body_{crew[0]}"), {(a.action, a.target) for a in observation.legal_actions})
+        leaked = crew_observation(agent_id=crew[1], self_state=SelfState(crew[1], "storage", Role.CREWMATE), events=own)
+        with self.assertRaises(PerceptionViolation):
+            perceive(leaked, crew[1])
+
+    def test_seeing_someone_vent_makes_them_the_prime_suspect(self) -> None:
+        vent = ObservedEvent("v1", 5, EventKind.VENT_SEEN, "electrical", "echo", text="entered")
+        update = consolidate(empty_store(), [vent], load_ego("sherlock"), match_seed=1, agent_id="sherlock", now=6)
+        beliefs = update_beliefs(recall(update.store, load_ego("sherlock"), 6), load_ego("sherlock"), self_id="sherlock", players=EGOS)
+        self.assertEqual(max(b["suspicion"] for b in beliefs.values()), beliefs["echo"]["suspicion"])
+
+    def test_impostor_play_is_scored_without_leakage(self) -> None:
+        totals = {"kills": 0, "vent_uses": 0, "sabotages": 0}
+        for seed in range(8):
+            record, _ = play(seed)
+            report = evaluate(record)
+            self.assertEqual(0, report["memory_leakage"]["violations"], seed)
+            for key in totals:
+                totals[key] += report["impostor_play"][key]
+        self.assertTrue(all(value > 0 for value in totals.values()), totals)

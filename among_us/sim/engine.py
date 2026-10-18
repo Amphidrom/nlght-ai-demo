@@ -28,9 +28,20 @@ from among_us.protocol import (
     VisibleBody,
     VisiblePlayer,
 )
-from among_us.sim.map import EMERGENCY_BUTTON_ROOM, ROOMS, SPAWN_ROOM, TASKS, next_hop
+from among_us.sim.map import (
+    EMERGENCY_BUTTON_ROOM,
+    ROOMS,
+    SABOTAGE_ROOMS,
+    SPAWN_ROOM,
+    TASKS,
+    next_hop,
+    vent_reachable,
+)
 
-_SALIENT = frozenset({EventKind.KILL_WITNESSED, EventKind.BODY_FOUND, EventKind.MEETING_CALLED})
+_SALIENT = frozenset({
+    EventKind.KILL_WITNESSED, EventKind.BODY_FOUND, EventKind.MEETING_CALLED,
+    EventKind.KILL_COMMITTED, EventKind.VENT_SEEN, EventKind.SABOTAGE_ALARM,
+})
 
 MIN_PLAYERS = 4
 MAX_PLAYERS = 15
@@ -82,6 +93,8 @@ class SimEngine:
         tasks_per_player: int = 4,
         task_ticks: int = 3,
         kill_cooldown: int = 5,
+        sabotage_cooldown: int = 12,
+        sabotage_countdown: int = 10,
         meeting_rounds: int = 1,
         max_ticks: int = 240,
     ) -> None:
@@ -101,6 +114,12 @@ class SimEngine:
             self._players[pid] = _Player(pid, role, tasks)
         self._kill_cooldown = kill_cooldown
         self._task_ticks = task_ticks
+        self._sabotage_cooldown_ticks = sabotage_cooldown
+        self._sabotage_countdown_ticks = sabotage_countdown
+        #: Shared by the impostor team, as in the real game.
+        self._sabotage_cooldown = sabotage_cooldown
+        #: Active critical sabotage: (system, ticks left), or None.
+        self._sabotage: tuple[str, int] | None = None
         self._meeting_rounds = meeting_rounds
         self._max_ticks = max_ticks
         self.tick = 0
@@ -139,6 +158,7 @@ class SimEngine:
                 for pid, p in self._players.items()
             ],
             "bodies": [{"player_id": b.player_id, "room": b.room} for b in self._bodies.values()],
+            "sabotage": {"system": self._sabotage[0], "ticks_left": self._sabotage[1]} if self._sabotage else None,
             "winner": self.winner.winner if self.winner else None,
         }
 
@@ -206,6 +226,7 @@ class SimEngine:
             legal_actions=self.legal_actions(pid),
             decision_reason=reason,
             roster=tuple(sorted(self._players)),
+            alarm=self._sabotage[0] if self._sabotage else None,
         )
 
     def legal_actions(self, pid: str) -> tuple[LegalAction, ...]:
@@ -225,6 +246,10 @@ class SimEngine:
         ]
         if player.role is Role.IMPOSTOR and player.kill_cooldown == 0:
             actions += [LegalAction(ActionKind.KILL, target) for target in self._kill_targets(pid)]
+        if player.role is Role.IMPOSTOR:
+            actions += [LegalAction(ActionKind.VENT, room) for room in vent_reachable(player.room)]
+            if self._sabotage is None and self._sabotage_cooldown == 0:
+                actions += [LegalAction(ActionKind.SABOTAGE, system) for system in sorted(SABOTAGE_ROOMS)]
         if player.room == EMERGENCY_BUTTON_ROOM and not player.button_used:
             actions.append(LegalAction(ActionKind.CALL_MEETING))
         actions.append(LegalAction(ActionKind.WAIT))
@@ -272,7 +297,7 @@ class SimEngine:
         self.tick += 1
         # Kills, reports and the button are instantaneous: they resolve before
         # anyone walks, so a victim cannot step away from a kill already made.
-        instant = (ActionKind.KILL, ActionKind.REPORT, ActionKind.CALL_MEETING)
+        instant = (ActionKind.KILL, ActionKind.REPORT, ActionKind.CALL_MEETING, ActionKind.SABOTAGE, ActionKind.VENT)
         for first_pass in (True, False):
             for pid in sorted(self.alive()):
                 player = self._players[pid]
@@ -281,6 +306,11 @@ class SimEngine:
                     self._execute(player)
         for player in self._players.values():
             player.kill_cooldown = max(0, player.kill_cooldown - 1)
+        self._sabotage_cooldown = max(0, self._sabotage_cooldown - 1)
+        if self.phase is Phase.TASKS:
+            outcome = self._tick_sabotage()
+            if outcome is not None:
+                return outcome
         self._record_positions()
         if self.tick >= self._max_ticks and self.phase is Phase.TASKS:
             return self._end("draw", "tick limit reached")
@@ -335,14 +365,33 @@ class SimEngine:
                 victim.pending = []
                 victim.intent = None
                 witnesses = [p for p in self._others_in(player.room, player.player_id) if p != victim.player_id]
-                self._emit("KILL", EventKind.KILL_WITNESSED, witnesses, room=player.room,
-                           actor=player.player_id, target=victim.player_id)
+                event = self._emit("KILL", EventKind.KILL_WITNESSED, witnesses, room=player.room,
+                                   actor=player.player_id, target=victim.player_id)
+                # The killer remembers the deed itself, as a different kind of perception.
+                own = ObservedEvent(event.event_id, self.tick, EventKind.KILL_COMMITTED, player.room,
+                                    player.player_id, victim.player_id)
+                event.views[player.player_id] = own
+                player.pending.append(own)
                 body_id = f"body_{victim.player_id}"
                 self._bodies[body_id] = _Body(body_id, victim.player_id, player.room)
                 player.seen_bodies.add(body_id)
                 player.kill_cooldown = self._kill_cooldown
                 for pid in witnesses:
                     self._players[pid].seen_bodies.add(body_id)
+        elif kind is ActionKind.VENT and intent.target in vent_reachable(player.room):
+            origin = player.room
+            self._emit("VENT", EventKind.VENT_SEEN, self._others_in(origin, player.player_id), room=origin,
+                       actor=player.player_id, text="entered")
+            player.room = intent.target
+            self._emit("VENT", EventKind.VENT_SEEN, self._others_in(player.room, player.player_id),
+                       room=player.room, actor=player.player_id, text="exited")
+            self._discover_bodies(player)
+        elif kind is ActionKind.SABOTAGE and intent.target in SABOTAGE_ROOMS and self._sabotage is None:
+            self._sabotage = (intent.target, self._sabotage_countdown_ticks)
+            self._sabotage_cooldown = self._sabotage_cooldown_ticks
+            # The alarm sounds for everyone, the saboteur included; nobody perceives who pulled it.
+            self._emit("SABOTAGE", EventKind.SABOTAGE_ALARM, self.alive(), room=None,
+                       target=intent.target, exclude_actor=False)
         elif kind is ActionKind.REPORT and intent.target in self._bodies:
             body = self._bodies[intent.target]
             if body.room == player.room:
@@ -363,6 +412,9 @@ class SimEngine:
         self._emit("MEETING", EventKind.MEETING_CALLED, self.alive(), room=caller.room,
                    actor=caller.player_id, target=victim, text=reason, exclude_actor=False)
         self._bodies.clear()
+        if self._sabotage is not None:
+            self._sabotage = None
+            self._emit("SABOTAGE_RESOLVED", EventKind.SABOTAGE_FIXED, self.alive(), room=None, text="meeting")
         self.phase = Phase.MEETING
         self._round = 0
         self._statements = {}
@@ -393,6 +445,24 @@ class SimEngine:
             p.intent = None
             if p.role is Role.IMPOSTOR:
                 p.kill_cooldown = self._kill_cooldown
+
+    def _tick_sabotage(self) -> MatchEnd | None:
+        """A crewmate standing in the sabotaged room fixes it — a reflex, as on the server."""
+        if self._sabotage is None:
+            return None
+        system, left = self._sabotage
+        room = SABOTAGE_ROOMS[system]
+        fixers = [pid for pid in sorted(self.alive()) if self._players[pid].role is Role.CREWMATE and self._players[pid].room == room]
+        if fixers:
+            self._sabotage = None
+            self._emit("SABOTAGE_FIXED", EventKind.SABOTAGE_FIXED, self.alive(), room=room,
+                       actor=fixers[0], target=system, exclude_actor=False)
+            return None
+        if left <= 1:
+            self._sabotage = None
+            return self._end("impostors", f"{system} sabotage was not fixed")
+        self._sabotage = (system, left - 1)
+        return None
 
     def _check_end(self) -> MatchEnd | None:
         alive = [self._players[pid] for pid in self.alive()]

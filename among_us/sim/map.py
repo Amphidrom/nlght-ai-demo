@@ -52,6 +52,17 @@ TASKS: dict[str, str] = {
     "empty_garbage": "cafeteria",
 }
 
+#: Vent connections between rooms, impostors only.
+VENTS: tuple[tuple[str, str], ...] = (
+    ("electrical", "security"), ("security", "medbay"), ("medbay", "electrical"),
+    ("upper_engine", "reactor"), ("reactor", "lower_engine"),
+    ("weapons", "navigation"), ("navigation", "shields"),
+    ("admin", "cafeteria"),
+)
+
+#: Critical sabotages and the room where the crew fixes them.
+SABOTAGE_ROOMS: dict[str, str] = {"reactor": "reactor", "o2": "o2"}
+
 EMERGENCY_BUTTON_ROOM = "cafeteria"
 SPAWN_ROOM = "cafeteria"
 
@@ -76,3 +87,18 @@ def next_hop(start: str, goal: str) -> str | None:
                 return step
             queue.append(neighbour)
     return None
+
+
+def vent_reachable(start: str) -> list[str]:
+    """Rooms an impostor can reach through the vents from ``start``, sorted."""
+
+    reachable: set[str] = set()
+    frontier = [start]
+    while frontier:
+        room = frontier.pop()
+        for a, b in VENTS:
+            for here, there in ((a, b), (b, a)):
+                if here == room and there not in reachable and there != start:
+                    reachable.add(there)
+                    frontier.append(there)
+    return sorted(reachable)

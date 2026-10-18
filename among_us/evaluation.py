@@ -39,6 +39,7 @@ def evaluate(record: MatchRecord) -> dict[str, Any]:
         "action_validity": _validity(decisions),
         "unsupported_claim_rate": _unsupported(decisions),
         "claims": _claims(decisions, truth) if truth is not None and truth.positions else None,
+        "impostor_play": _impostor_play(truth, record.winner) if truth is not None else None,
     }
 
 
@@ -140,6 +141,34 @@ def _by_mode(
             "unsupported_claims": _unsupported(items),
         }
     return report
+
+
+def _impostor_play(truth: Any, winner: dict[str, Any] | None) -> dict[str, Any]:
+    """How the impostors played: kills and who saw them, vents and who saw them, sabotage, cover."""
+
+    events = truth.events
+    kills = [e for e in events if e["kind"] == "KILL"]
+    seen_kills = [e for e in kills if set(e["views"]) - {e["actor"]}]
+    vents = [e for e in events if e["kind"] == "VENT" and e["text"] == "entered"]
+    vent_sightings = sum(len(e["views"]) for e in events if e["kind"] == "VENT")
+    sabotages = [e for e in events if e["kind"] == "SABOTAGE"]
+    fixed = [e for e in events if e["kind"] == "SABOTAGE_FIXED"]
+    killer_of = {e["target"]: e["actor"] for e in kills}
+    self_reports = [
+        e for e in events
+        if e["kind"] == "MEETING" and e["target"] is not None and killer_of.get(e["target"]) == e["actor"]
+    ]
+    reason = (winner or {}).get("reason", "")
+    return {
+        "kills": len(kills),
+        "kills_witnessed": len(seen_kills),
+        "vent_uses": len(vents),
+        "vent_sightings": vent_sightings,
+        "sabotages": len(sabotages),
+        "sabotages_fixed": len(fixed),
+        "won_by_sabotage": "sabotage" in reason,
+        "self_reports": len(self_reports),
+    }
 
 
 _CLAIM_TOLERANCE = 1  # ticks: "I was in admin at 12" holds if true at 11, 12 or 13

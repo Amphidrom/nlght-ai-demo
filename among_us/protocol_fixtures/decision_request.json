@@ -273,6 +273,7 @@
       "echo",
       "maverick",
       "sherlock"
-    ]
+    ],
+    "alarm": null
   }
 }

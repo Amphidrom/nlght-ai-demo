@@ -31,4 +31,8 @@ def perceive(observation: Observation, agent_id: str) -> tuple[ObservedEvent, ..
             raise PerceptionViolation(f"event {event.event_id} is from the future")
         if event.kind is EventKind.KILL_WITNESSED and event.actor == agent_id:
             raise PerceptionViolation("a killer does not witness their own kill")
+        if event.kind is EventKind.KILL_COMMITTED and (
+            event.actor != agent_id or observation.self_state.role is not Role.IMPOSTOR
+        ):
+            raise PerceptionViolation("only the killer remembers a kill as committed")
     return observation.events

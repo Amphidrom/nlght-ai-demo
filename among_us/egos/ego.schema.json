@@ -69,7 +69,11 @@
         "CHAT",
         "VOTE_CAST",
         "EJECTED",
-        "NO_EJECTION"
+        "NO_EJECTION",
+        "KILL_COMMITTED",
+        "VENT_SEEN",
+        "SABOTAGE_ALARM",
+        "SABOTAGE_FIXED"
       ],
       "title": "EventKind",
       "type": "string"

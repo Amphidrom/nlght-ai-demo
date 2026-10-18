@@ -47,6 +47,9 @@ def update_beliefs(
         actor = details.get("actor")
         if kind == EventKind.KILL_WITNESSED.value:
             bump(actor, 1.0, memory)
+        elif kind == EventKind.VENT_SEEN.value:
+            # Only impostors vent: seeing it is nearly as damning as seeing a kill.
+            bump(actor, 0.9, memory)
         elif kind == EventKind.TASK_SEEN.value:
             bump(actor, -0.08, memory)
         elif kind in (EventKind.PLAYER_LEFT.value, EventKind.PLAYER_ENTERED.value):
