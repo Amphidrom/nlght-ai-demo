@@ -37,9 +37,19 @@ integrations:
         enabled: true
         config:
           base_dir: ./.sessions
+  # Sampling is provider configuration, not a per-call argument. The showcase
+  # steps answer through "ollama"; knowledge.extract reads the handbook through
+  # "ollama-extract", the same model held at temperature 0.
   model_providers:
     - name: "ollama"
       kind: "ollama-local"
       config:
         base_url: "http://localhost:11434"
         default_model: "qwen3-coder:30b"
+        temperature: 0.1
+    - name: "ollama-extract"
+      kind: "ollama-local"
+      config:
+        base_url: "http://localhost:11434"
+        default_model: "qwen3-coder:30b"
+        temperature: 0

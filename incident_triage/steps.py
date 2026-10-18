@@ -92,5 +92,5 @@ class IncidentRespondStep(StepBase):
         conversation = [UserMessage(json.dumps({"alert": ctx.trigger.payload.get("alert", {}) if ctx.trigger else {}}))]
         await ctx.emitter.emit(Signal("assistant", "Generating incident guidance", kind="status"))
         messages = compose_messages(compose_prompt(_INSTRUCTIONS, records), conversation)
-        await ctx.llm.call(messages=messages, temperature=0.2)
+        await ctx.llm.call(messages=messages)
         return StepResult(ctx=ctx, verdict="done")

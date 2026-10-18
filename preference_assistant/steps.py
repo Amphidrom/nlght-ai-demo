@@ -99,5 +99,5 @@ class PreferenceRespondStep(StepBase):
         )]
         await ctx.emitter.emit(Signal("assistant", "Calling the model with persisted preferences", kind="status"))
         messages = compose_messages(compose_prompt(instructions, records), [UserMessage(request)])
-        await ctx.llm.call(messages=messages, temperature=0.2)
+        await ctx.llm.call(messages=messages)
         return StepResult(ctx=ctx, verdict="done")

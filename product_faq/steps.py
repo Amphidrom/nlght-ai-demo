@@ -64,7 +64,7 @@ class ProductAnswerStep(StepBase):
         if not sources:
             await ctx.emitter.emit(Signal("assistant", "No grounded manual found; requesting human support", kind="status"))
             messages = compose_messages(compose_prompt(_UNSUPPORTED_INSTRUCTIONS, ()), conversation)
-            await ctx.llm.call(messages=messages, temperature=0.1)
+            await ctx.llm.call(messages=messages)
             return StepResult(ctx=ctx, verdict="done")
 
         records = [
@@ -81,5 +81,5 @@ class ProductAnswerStep(StepBase):
         ]
         await ctx.emitter.emit(Signal("assistant", "Generating a grounded answer from retrieved manuals", kind="status"))
         messages = compose_messages(compose_prompt(_GROUNDED_INSTRUCTIONS, records), conversation)
-        await ctx.llm.call(messages=messages, temperature=0.1)
+        await ctx.llm.call(messages=messages)
         return StepResult(ctx=ctx, verdict="done")
