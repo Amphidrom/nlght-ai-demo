@@ -256,9 +256,9 @@ uv run nlght-ai knowledge-report -x url=postgresql+asyncpg://knowledge:knowledge
 
 ## Experimental: Among Us agents
 
-`among_us/` is a separate experiment, not one of the seven showcase cases. Five nlght-ai agents
-with distinct egos — Sherlock, Archive, Bubbles, Maverick and Echo — play Among Us against a
-deterministic simulation. Each agent runs in its own Hive Mind session, perceives only what its
+`among_us/` is a separate experiment, not one of the seven showcase cases. Up to fifteen nlght-ai
+agents — a full lobby, one distinct ego per seat, with one to three impostors — play Among Us
+against a deterministic simulation. Each agent runs in its own Hive Mind session, perceives only what its
 own character could see, remembers it according to its profile (attention, encoding, forgetting),
 derives suspicions from what it can still recall, and lets the model choose among legal actions
 only. A validator refuses illegal actions and claims that cite memories the agent does not have.

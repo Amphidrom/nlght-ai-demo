@@ -1,0 +1,183 @@
+{
+  "$defs": {
+    "Attention": {
+      "additionalProperties": false,
+      "description": "Whether a perceived event is noticed at all (memory.encode).",
+      "properties": {
+        "default": {
+          "type": "number",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "description": "Probability of noticing an event of any kind not listed in by_kind.",
+          "title": "Default"
+        },
+        "by_kind": {
+          "additionalProperties": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          },
+          "description": "Per event kind override of default. Kills, bodies and meetings are always noticed.",
+          "propertyNames": {
+            "$ref": "#/$defs/EventKind"
+          },
+          "title": "By Kind",
+          "type": "object"
+        }
+      },
+      "required": [
+        "default"
+      ],
+      "title": "Attention",
+      "type": "object"
+    },
+    "Encoding": {
+      "additionalProperties": false,
+      "description": "How much of a noticed event is kept, and how faithfully (memory.encode).",
+      "properties": {
+        "fidelity": {
+          "description": "Probability of keeping each detail (room, actor, target, text); also the share of a chat message's words kept. Raised by 0.3 for kills and bodies.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Fidelity",
+          "type": "number"
+        },
+        "detail_noise": {
+          "description": "Probability that a kept room is remembered as a neighbouring room instead.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Detail Noise",
+          "type": "number"
+        }
+      },
+      "required": [
+        "fidelity",
+        "detail_noise"
+      ],
+      "title": "Encoding",
+      "type": "object"
+    },
+    "EventKind": {
+      "description": "What an agent can perceive. Objective-only facts have no member here.",
+      "enum": [
+        "PLAYER_ENTERED",
+        "PLAYER_LEFT",
+        "TASK_SEEN",
+        "KILL_WITNESSED",
+        "BODY_FOUND",
+        "MEETING_CALLED",
+        "CHAT",
+        "VOTE_CAST",
+        "EJECTED",
+        "NO_EJECTION"
+      ],
+      "title": "EventKind",
+      "type": "string"
+    },
+    "Judgement": {
+      "additionalProperties": false,
+      "description": "How recalled evidence turns into suspicion (beliefs.update_beliefs).",
+      "properties": {
+        "suspicion_bias": {
+          "description": "Multiplier on incriminating evidence; exonerating evidence is not scaled.",
+          "maximum": 3.0,
+          "minimum": 0.0,
+          "title": "Suspicion Bias",
+          "type": "number"
+        }
+      },
+      "required": [
+        "suspicion_bias"
+      ],
+      "title": "Judgement",
+      "type": "object"
+    },
+    "Retention": {
+      "additionalProperties": false,
+      "description": "How long a trace stays recallable (memory.strength, memory.recall).",
+      "properties": {
+        "half_life_ticks": {
+          "description": "Ticks until a trace's strength halves. Doubled for kills and bodies.",
+          "exclusiveMinimum": 0,
+          "title": "Half Life Ticks",
+          "type": "number"
+        },
+        "recall_threshold": {
+          "description": "Minimum strength for a trace to come to mind. Below half of it, the trace is deleted.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Recall Threshold",
+          "type": "number"
+        }
+      },
+      "required": [
+        "half_life_ticks",
+        "recall_threshold"
+      ],
+      "title": "Retention",
+      "type": "object"
+    },
+    "Voice": {
+      "additionalProperties": false,
+      "description": "How the agent speaks (decide prompt, validator).",
+      "properties": {
+        "max_words": {
+          "description": "Upper bound on words per meeting statement.",
+          "maximum": 120,
+          "minimum": 5,
+          "title": "Max Words",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_words"
+      ],
+      "title": "Voice",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One ego file. ``ego_id`` comes from the file name, never from the file.",
+  "properties": {
+    "name": {
+      "description": "Display name.",
+      "maxLength": 40,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "persona": {
+      "description": "Character description; becomes part of the trusted instructions.",
+      "maxLength": 1200,
+      "minLength": 20,
+      "title": "Persona",
+      "type": "string"
+    },
+    "attention": {
+      "$ref": "#/$defs/Attention"
+    },
+    "encoding": {
+      "$ref": "#/$defs/Encoding"
+    },
+    "retention": {
+      "$ref": "#/$defs/Retention"
+    },
+    "judgement": {
+      "$ref": "#/$defs/Judgement"
+    },
+    "voice": {
+      "$ref": "#/$defs/Voice"
+    }
+  },
+  "required": [
+    "name",
+    "persona",
+    "attention",
+    "encoding",
+    "retention",
+    "judgement",
+    "voice"
+  ],
+  "title": "nlght-ai Among Us ego profile",
+  "type": "object"
+}

@@ -38,15 +38,45 @@ players' chat is labelled `game_chat`, because an impostor's job is to lie.
 
 ## Egos
 
-Profiles are packaged TOML files in `among_us/egos/` and can only be selected by id:
+Fifteen profiles, one per seat of a full lobby, ship as `among_us/egos/<ego_id>.toml`. The file
+name is the id; a request can only select a profile, never supply one.
 
-| Ego | Attention | Fidelity | Half-life | Character |
-|---|---|---|---|---|
-| `sherlock` | high | 0.95 | 80 ticks | precise investigator |
-| `archive` | medium | 1.0 | 400 ticks | exact record keeper, cites event ids |
-| `bubbles` | low, social | 0.6 | 15 ticks | chatty, forgetful, trusting |
-| `maverick` | medium | 0.8 | 40 ticks | quick to accuse |
-| `echo` | medium, social | 0.85 | 50 ticks | follows the group, cautious voter |
+`EgoProfile` in `among_us/ego.py` is the single definition of an ego file: strict types, ranges,
+units, no unknown keys. Each parameter feeds exactly one formula, and no code branches on which ego
+it runs:
+
+| Section · parameter | Range | Consumer | Effect |
+|---|---|---|---|
+| `attention.default`, `attention.by_kind` | 0–1 | `memory.encode` | probability of noticing an event (kills, bodies, meetings: always) |
+| `encoding.fidelity` | 0–1 | `memory.encode` | probability of keeping each detail; share of chat words kept |
+| `encoding.detail_noise` | 0–1 | `memory.encode` | probability of remembering a neighbouring room instead |
+| `retention.half_life_ticks` | > 0 ticks | `memory.strength` | exponential forgetting |
+| `retention.recall_threshold` | 0–1 | `memory.recall` | minimum strength to recall; below half of it the trace is deleted |
+| `judgement.suspicion_bias` | 0–3 | `beliefs.update_beliefs` | multiplier on incriminating evidence |
+| `voice.max_words` | 5–120 | decide prompt, validator | statement length |
+| `persona` | text | decide step | character, part of the trusted instructions |
+
+`among_us/egos/ego.schema.json` is generated from the model (`python -m among_us.ego`) and
+referenced by every file (`#:schema`), so TOML-aware editors validate while you edit. A test fails
+if the committed schema drifts from the model.
+
+| Ego | Attention | Fidelity | Noise | Half-life | Suspicion bias | Character |
+|---|---|---|---|---|---|---|
+| `archive` | 0.7 | 1.0 | 0.0 | 400 | 0.9 | Archive, a dry record keeper |
+| `bubbles` | 0.45 | 0.6 | 0.15 | 15 | 0.7 | Bubbles, cheerful, chatty and easily distracted |
+| `drifter` | 0.3 | 0.7 | 0.1 | 30 | 0.8 | Drifter, a daydreamer |
+| `echo` | 0.6 | 0.85 | 0.05 | 50 | 0.8 | Echo, agreeable and cautious |
+| `gossip` | 0.4 | 0.65 | 0.2 | 35 | 1.1 | Gossip |
+| `guardian` | 0.7 | 0.85 | 0.04 | 90 | 1.1 | Guardian |
+| `hawk` | 0.95 | 0.85 | 0.05 | 12 | 1.3 | Hawk, sharp-eyed and quick |
+| `ledger` | 0.7 | 0.9 | 0.02 | 120 | 1.0 | Ledger, a timekeeper |
+| `maverick` | 0.65 | 0.8 | 0.05 | 40 | 1.5 | Maverick, bold and impatient |
+| `nova` | 0.6 | 0.75 | 0.08 | 45 | 1.4 | Nova, energetic and theatrical |
+| `rookie` | 0.5 | 0.55 | 0.25 | 25 | 0.9 | Rookie, new to the game and a bit nervous |
+| `sage` | 0.6 | 0.9 | 0.02 | 250 | 0.6 | Sage, calm and patient |
+| `sherlock` | 0.9 | 0.95 | 0.02 | 80 | 1.2 | Sherlock, a meticulous investigator |
+| `skeptic` | 0.75 | 0.9 | 0.03 | 70 | 0.6 | Skeptic |
+| `tinker` | 0.4 | 0.85 | 0.05 | 60 | 0.8 | Tinker, absorbed in your tasks |
 
 Every random choice draws from `sha256(match_seed | agent | event | purpose)`, so a match
 replays exactly and differences between egos come from their profiles alone.
@@ -82,5 +112,5 @@ Then follow `GET /among-us/api/matches/{id}/events` (server-sent events) and, on
 
 ## Not in this slice
 
-Dashboard and memory timeline, a chat-history baseline, an Impostor server plugin, more than five
-agents, and any use of Among Us artwork.
+Dashboard and memory timeline, a chat-history baseline, an Impostor server plugin, an LLM call
+scheduler (a full lobby can start up to fifteen model calls at once), and any use of Among Us artwork.

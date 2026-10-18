@@ -36,7 +36,7 @@ def update_beliefs(
     def bump(pid: str | None, delta: float, memory: dict[str, Any]) -> None:
         if pid not in scores or pid in partners:
             return
-        weighted = delta * float(memory["certainty"]) * (ego.suspicion_bias if delta > 0 else 1.0)
+        weighted = delta * float(memory["certainty"]) * (ego.judgement.suspicion_bias if delta > 0 else 1.0)
         scores[pid] += weighted
         evidence[pid].append(memory["event_id"])
 

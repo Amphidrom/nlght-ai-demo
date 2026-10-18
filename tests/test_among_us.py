@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 from among_us.adapter import _match_options
 from among_us.beliefs import update_beliefs
-from among_us.ego import ego_ids, load_ego
+from among_us.ego import InvalidEgo, ego_ids, file_schema, load_ego, parse_ego
 from among_us.environment import BridgeEnvironment, SimEnvironment
 from among_us.evaluation import differentiation_probe, evaluate
 from among_us.match import MatchRecord, PipelineAgentRunner, run_match, session_key
@@ -35,7 +35,7 @@ from among_us.protocol import (
     encode,
     to_dict,
 )
-from among_us.sim.engine import SimEngine
+from among_us.sim.engine import MAX_PLAYERS, SimEngine, max_impostors
 from among_us.steps import validate_proposal
 from fastapi import HTTPException
 from nlght.core.model.messages import TrustedInstructionMessage, UntrustedContextMessage
@@ -137,6 +137,23 @@ class SimulationTests(unittest.TestCase):
             self.assertIn(record.winner["winner"], {"crew", "impostors"})
             self.assertTrue(all(e["accepted"] for e in record.entries if e["type"] == "decision"))
 
+    def test_full_lobby_with_three_impostors_plays_to_the_end(self) -> None:
+        egos = list(ego_ids())
+        environment = SimEnvironment(egos, seed=21, impostors=3)
+        record = MatchRecord("full", 21, {e: e for e in egos}, "sim")
+        asyncio.run(run_match(environment, PipelineAgentRunner(), record, offline=True))
+        self.assertEqual("finished", record.status, record.error)
+        truth = environment.ground_truth()
+        self.assertEqual(3, sum(1 for role in truth.roles.values() if role == "IMPOSTOR"))
+        self.assertEqual(0, evaluate(record)["memory_leakage"]["violations"])
+
+    def test_lobby_limits_follow_the_game(self) -> None:
+        with self.assertRaises(ValueError):
+            SimEngine([f"p{i}" for i in range(16)], seed=1)
+        with self.assertRaises(ValueError):
+            SimEngine([f"p{i}" for i in range(6)], seed=1, impostors=2)
+        self.assertEqual((1, 2, 3), (max_impostors(6), max_impostors(8), max_impostors(15)))
+
     def test_impostors_win_at_parity(self) -> None:
         engine = SimEngine(["a", "b", "c", "d"], seed=1, kill_cooldown=0)
         impostor = next(pid for pid in engine.player_ids if engine.role_of(pid) is Role.IMPOSTOR)
@@ -233,10 +250,34 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual(["k1"], beliefs["echo"]["evidence_ids"])
         self.assertEqual(max(b["suspicion"] for b in beliefs.values()), beliefs["echo"]["suspicion"])
 
-    def test_every_profile_loads(self) -> None:
-        self.assertEqual(sorted(EGOS), list(ego_ids()))
-        for ego in ego_ids():
-            self.assertTrue(load_ego(ego).persona)
+    def test_a_full_lobby_has_an_ego_per_seat(self) -> None:
+        self.assertEqual(MAX_PLAYERS, len(ego_ids()))
+        self.assertLessEqual(set(EGOS), set(ego_ids()))
+        profiles = [load_ego(ego) for ego in ego_ids()]
+        for profile in profiles:
+            self.assertTrue(profile.persona)
+        # No two egos are cognitively identical.
+        cognition = {p.model_dump_json(include={"attention", "encoding", "retention", "judgement"}) for p in profiles}
+        self.assertEqual(len(profiles), len(cognition))
+
+    def test_committed_schema_matches_the_model(self) -> None:
+        committed = json.loads(Path("among_us/egos/ego.schema.json").read_text(encoding="utf-8"))
+        self.assertEqual(file_schema(), committed, "regenerate with: python -m among_us.ego")
+
+    def test_ego_files_are_validated_strictly(self) -> None:
+        valid = Path("among_us/egos/sherlock.toml").read_text(encoding="utf-8")
+        broken = {
+            "string number": valid.replace("fidelity = 0.95", 'fidelity = "0.95"'),
+            "out of range": valid.replace("detail_noise = 0.02", "detail_noise = 1.5"),
+            "unknown key": valid.replace("[voice]", "[voice]\nshout = true"),
+            "unknown event kind": valid.replace("[attention.by_kind]", "[attention.by_kind]\nTELEPATHY = 1.0"),
+            "id in file": "ego_id = \"other\"\n" + valid,
+            "missing section": valid.split("[judgement]")[0],
+        }
+        for label, text in broken.items():
+            with self.subTest(label), self.assertRaises(InvalidEgo):
+                parse_ego("sherlock", text)
+        self.assertEqual(load_ego("sherlock"), parse_ego("sherlock", valid))
 
 
 class ValidationTests(unittest.TestCase):
@@ -263,7 +304,7 @@ class ValidationTests(unittest.TestCase):
 
     def test_truncates_long_statements_to_the_ego(self) -> None:
         action, _ = validate_proposal({"action": "SAY", "text": "word " * 100}, crew_observation(), set(), load_ego("bubbles"))
-        self.assertLessEqual(len(action.text.split()), load_ego("bubbles").max_words + 1)
+        self.assertLessEqual(len(action.text.split()), load_ego("bubbles").voice.max_words + 1)
 
 
 class AgentTurnTests(unittest.TestCase):
@@ -393,12 +434,16 @@ class AdapterOptionTests(unittest.TestCase):
         options = _match_options({"environment": "bridge", "players": {"p1": "sherlock"}})
         self.assertEqual("127.0.0.1", options["bridge_host"])
 
-    def test_simulated_match_needs_four_or_five_known_egos(self) -> None:
+    def test_simulated_match_needs_four_to_fifteen_known_egos(self) -> None:
         with self.assertRaises(HTTPException):
             _match_options({"egos": ["sherlock", "archive", "bubbles"]})
         with self.assertRaises(HTTPException):
             _match_options({"egos": ["sherlock", "archive", "bubbles", "hacker"]})
-        self.assertEqual(5, len(_match_options({})["assignment"]))
+        with self.assertRaises(HTTPException):
+            _match_options({"egos": ["sherlock", "archive", "bubbles", "echo"], "impostors": 2})
+        options = _match_options({})
+        self.assertEqual(MAX_PLAYERS, len(options["assignment"]))
+        self.assertEqual(2, options["impostors"])
 
     def test_action_payload_is_plain_json(self) -> None:
         self.assertEqual("MOVE_TO", to_dict(SemanticAction("a", ActionKind.MOVE_TO, "admin"))["action"])

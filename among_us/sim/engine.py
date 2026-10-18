@@ -32,6 +32,14 @@ from among_us.sim.map import EMERGENCY_BUTTON_ROOM, ROOMS, SPAWN_ROOM, TASKS, ne
 
 _SALIENT = frozenset({EventKind.KILL_WITNESSED, EventKind.BODY_FOUND, EventKind.MEETING_CALLED})
 
+MIN_PLAYERS = 4
+MAX_PLAYERS = 15
+
+
+def max_impostors(players: int) -> int:
+    """The game's own lobby limit: 1 up to six players, 2 up to eight, then 3."""
+    return 1 if players <= 6 else 2 if players <= 8 else 3
+
 
 @dataclass
 class _Player:
@@ -74,10 +82,10 @@ class SimEngine:
         meeting_rounds: int = 1,
         max_ticks: int = 240,
     ) -> None:
-        if len(set(players)) != len(players) or len(players) < 3:
-            raise ValueError("a match needs at least three distinct players")
-        if not 1 <= impostors < len(players) / 2:
-            raise ValueError("impostors must be at least one and fewer than half the players")
+        if len(set(players)) != len(players) or not MIN_PLAYERS <= len(players) <= MAX_PLAYERS:
+            raise ValueError(f"a match needs {MIN_PLAYERS} to {MAX_PLAYERS} distinct players")
+        if not 1 <= impostors <= max_impostors(len(players)):
+            raise ValueError(f"{len(players)} players allow 1 to {max_impostors(len(players))} impostors")
         self.seed = seed
         self._rng = random.Random(seed)
         order = sorted(players)

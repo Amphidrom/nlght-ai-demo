@@ -2,7 +2,8 @@
 
 ## main (unreleased)
 
-- among-us (experimental): five ego-driven agents play a deterministic Among Us simulation through the new `among_us_agent_turn` workflow (perceive, remember, believe, decide, validate), one Hive Mind session per agent, with ego-dependent encoding and forgetting, evidence-checked actions, replays and leakage/recall/validity metrics. (working/among-us-slice)
+- among-us (experimental): up to fifteen ego-driven agents (a full lobby, 1–3 impostors by the game's lobby limits) play a deterministic Among Us simulation through the new `among_us_agent_turn` workflow (perceive, remember, believe, decide, validate), one Hive Mind session per agent, with ego-dependent encoding and forgetting, evidence-checked actions, replays and leakage/recall/validity metrics. (working/among-us-slice)
+- among-us: define ego files by one strict pydantic schema (typed, ranged, sectioned by cognitive stage, no unknown keys) with a generated JSON schema for editors. (working/among-us-slice)
 - among-us: define bridge protocol v1 (NDJSON over loopback) with shared fixtures, a `BridgeEnvironment` client and an unbuilt C# BepInEx/Reactor bridge skeleton for the real game. (working/among-us-slice)
 - trigger: split `build_invocation()` out of `build_http_invocation()` so in-process callers can start workflows without an HTTP request. (working/among-us-slice)
 - docs: draft the permission request to Innersloth. (working/among-us-slice)

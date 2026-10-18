@@ -22,11 +22,18 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from among_us.ego import ego_ids, load_ego
 from among_us.environment import BridgeEnvironment, GameEnvironment, SimEnvironment
 from among_us.evaluation import evaluate
-from among_us.match import WORKFLOW, MatchRecord, PipelineAgentRunner, ReplayWriter, WorkflowAgentRunner, run_match
+from among_us.match import (
+    WORKFLOW,
+    MatchRecord,
+    PipelineAgentRunner,
+    ReplayWriter,
+    WorkflowAgentRunner,
+    run_match,
+)
+from among_us.sim.engine import MAX_PLAYERS, MIN_PLAYERS, max_impostors
 
 logger = logging.getLogger(__name__)
 _TERMINAL = {"finished", "failed"}
-_DEFAULT_EGOS = ("archive", "bubbles", "echo", "maverick", "sherlock")
 
 
 class AmongUsAdapter:
@@ -117,7 +124,8 @@ def _match_options(body: dict[str, Any]) -> dict[str, Any]:
     environment = str(body.get("environment", "sim"))
     if environment not in ("sim", "bridge"):
         raise HTTPException(422, "environment must be 'sim' or 'bridge'.")
-    egos = body.get("egos") or list(_DEFAULT_EGOS)
+    # Default: a full lobby, one player per ego.
+    egos = body.get("egos") or list(ego_ids())
     if not isinstance(egos, list) or not all(isinstance(e, str) for e in egos):
         raise HTTPException(422, "egos must be a list of ego ids.")
     unknown = sorted(set(egos) - set(ego_ids()))
@@ -133,17 +141,19 @@ def _match_options(body: dict[str, Any]) -> dict[str, Any]:
         if set(assignment.values()) - set(ego_ids()):
             raise HTTPException(422, "players maps to an unknown ego.")
     else:
-        if len(set(egos)) != len(egos) or not 4 <= len(egos) <= 5:
-            raise HTTPException(422, "A simulated match needs four or five distinct egos.")
+        if len(set(egos)) != len(egos) or not MIN_PLAYERS <= len(egos) <= MAX_PLAYERS:
+            raise HTTPException(422, f"A simulated match needs {MIN_PLAYERS} to {MAX_PLAYERS} distinct egos.")
         assignment = {e: e for e in egos}
     try:
         seed = int(body.get("seed", 7))
-        impostors = int(body.get("impostors", 1))
+        impostors = int(body.get("impostors", min(2, max_impostors(len(assignment)))))
         port = int(body.get("bridge_port", 47100))
     except (TypeError, ValueError) as exc:
         raise HTTPException(422, "seed, impostors and bridge_port must be integers.") from exc
     # The bridge is always local, and only its own port range is reachable:
     # a request cannot point the orchestrator at another local service.
+    if not 1 <= impostors <= max_impostors(len(assignment)):
+        raise HTTPException(422, f"{len(assignment)} players allow 1 to {max_impostors(len(assignment))} impostors.")
     if not 47100 <= port <= 47199:
         raise HTTPException(422, "bridge_port must be within 47100-47199.")
     return {

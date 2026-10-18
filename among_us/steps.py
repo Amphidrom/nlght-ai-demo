@@ -178,7 +178,7 @@ class AmongUsDecideStep(StepBase):
             return StepResult(ctx=ctx, verdict="decided")
 
         ego = load_ego(state["ego"])
-        instructions = f"{ego.persona}\n\n{_RULES}\n\nKeep anything you say under {ego.max_words} words."
+        instructions = f"{ego.persona}\n\n{_RULES}\n\nKeep anything you say under {ego.voice.max_words} words."
         records = self._context(state, observation)
         request = UserMessage(json.dumps({
             "tick": observation.tick,
@@ -321,8 +321,8 @@ def validate_proposal(
         words = (action.text or "").split()
         if not words:
             return None, {"status": "malformed", "reason": "SAY without text"}
-        if len(words) > ego.max_words:
-            action = SemanticAction(action.agent_id, action.action, None, " ".join(words[:ego.max_words]) + " …",
+        if len(words) > ego.voice.max_words:
+            action = SemanticAction(action.agent_id, action.action, None, " ".join(words[:ego.voice.max_words]) + " …",
                                     action.goal, action.evidence_ids)
     if observation.phase is not Phase.MEETING and action.action is ActionKind.SAY:
         return None, {"status": "illegal", "reason": "SAY outside a meeting"}

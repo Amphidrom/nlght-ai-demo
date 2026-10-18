@@ -40,7 +40,7 @@ def encode(event: ObservedEvent, ego: EgoProfile, *, match_seed: int, agent_id: 
 
     if rng_for(match_seed, agent_id, event.event_id, "attention").random() >= ego.attention_for(event.kind):
         return None
-    fidelity = ego.encoding_fidelity
+    fidelity = ego.encoding.fidelity
     if event.kind in _SALIENT:
         fidelity = min(1.0, fidelity + 0.3)
     rng = rng_for(match_seed, agent_id, event.event_id, "encoding")
@@ -50,7 +50,7 @@ def encode(event: ObservedEvent, ego: EgoProfile, *, match_seed: int, agent_id: 
         if rng.random() >= fidelity:
             continue
         value = getattr(event, name)
-        if name == "room" and value in ADJACENCY and rng.random() < ego.detail_noise:
+        if name == "room" and value in ADJACENCY and rng.random() < ego.encoding.detail_noise:
             # A plausible mix-up with a neighbouring room — the agent cannot tell.
             value = rng.choice(sorted(ADJACENCY[value]))
         if name == "text":
@@ -73,7 +73,7 @@ def encode(event: ObservedEvent, ego: EgoProfile, *, match_seed: int, agent_id: 
 def strength(memory: dict[str, Any], ego: EgoProfile, now: int) -> float:
     age = max(0, now - int(memory["tick"]))
     salience = 2.0 if memory["kind"] in {k.value for k in _SALIENT} else 1.0
-    decay = 0.5 ** (age / (ego.retention_half_life * salience))
+    decay = 0.5 ** (age / (ego.retention.half_life_ticks * salience))
     return float(memory["encoding_quality"]) * decay
 
 
@@ -115,7 +115,7 @@ def consolidate(
         else:
             memories[event.event_id] = trace
             encoded.append(event.event_id)
-    forget_below = ego.recall_threshold * 0.5
+    forget_below = ego.retention.recall_threshold * 0.5
     forgotten = sorted(eid for eid, m in memories.items() if strength(m, ego, now) < forget_below)
     for eid in forgotten:
         del memories[eid]
@@ -128,6 +128,6 @@ def recall(store: dict[str, Any], ego: EgoProfile, now: int) -> list[dict[str, A
     recalled = []
     for memory in store.get("memories", {}).values():
         value = strength(memory, ego, now)
-        if value >= ego.recall_threshold:
+        if value >= ego.retention.recall_threshold:
             recalled.append({**memory, "certainty": round(value, 3)})
     return sorted(recalled, key=lambda m: (-int(m["tick"]), m["event_id"]))
