@@ -50,9 +50,21 @@ def fallback_action(observation: Observation, beliefs: dict[str, dict[str, Any]]
         kills = legal_targets(ActionKind.KILL)
         if len(kills) == 1 and len(observation.visible_players) == 1:
             return SemanticAction(agent, ActionKind.KILL, target=kills[0], goal="ELIMINATE")
+        if me.vanished and (ActionKind.APPEAR, None) in legal and observation.visible_players:
+            return SemanticAction(agent, ActionKind.APPEAR, goal="STRIKE")
+        if (ActionKind.VANISH, None) in legal and observation.visible_players and observation.tick % 4 == 0:
+            return SemanticAction(agent, ActionKind.VANISH, goal="SLIP_AWAY")
+        shapes = legal_targets(ActionKind.SHAPESHIFT)
+        if shapes and not observation.visible_players:
+            # Take on the look of a crewmate, so a witness blames them.
+            crew = [p for p in shapes if p not in me.known_impostors] or shapes
+            return SemanticAction(agent, ActionKind.SHAPESHIFT, target=crew[observation.tick % len(crew)], goal="FRAME")
         sabotages = legal_targets(ActionKind.SABOTAGE)
         if sabotages and not observation.visible_players and observation.tick % 3 == 0:
             return SemanticAction(agent, ActionKind.SABOTAGE, target=sabotages[observation.tick % len(sabotages)], goal="SPLIT_CREW")
+        doors = legal_targets(ActionKind.CLOSE_DOORS)
+        if doors and observation.tick % 5 == 0:
+            return SemanticAction(agent, ActionKind.CLOSE_DOORS, target=doors[observation.tick % len(doors)], goal="TRAP")
         if me.kill_ready:
             # Hunt: roam the busy rooms instead of faking tasks.
             hunting = [room for room in _HUNTING_GROUNDS if (ActionKind.MOVE_TO, room) in legal]
@@ -62,8 +74,9 @@ def fallback_action(observation: Observation, beliefs: dict[str, dict[str, Any]]
         reports = legal_targets(ActionKind.REPORT)
         if reports:
             return SemanticAction(agent, ActionKind.REPORT, target=reports[0], goal="REPORT_BODY")
-        if observation.alarm and (ActionKind.MOVE_TO, SABOTAGE_ROOMS.get(observation.alarm)) in legal:
-            return SemanticAction(agent, ActionKind.MOVE_TO, target=SABOTAGE_ROOMS[observation.alarm], goal="FIX_SABOTAGE")
+        for system in (observation.alarm, *observation.outages):
+            if system and (ActionKind.MOVE_TO, SABOTAGE_ROOMS.get(system)) in legal:
+                return SemanticAction(agent, ActionKind.MOVE_TO, target=SABOTAGE_ROOMS[system], goal="FIX_SABOTAGE")
     tasks = legal_targets(ActionKind.DO_TASK)
     if tasks:
         return SemanticAction(agent, ActionKind.DO_TASK, target=tasks[0], goal="TASK")

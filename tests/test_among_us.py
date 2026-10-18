@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 import json
 import tomllib
 import re
@@ -873,3 +874,131 @@ class ImpostorModeTests(unittest.TestCase):
             for key in totals:
                 totals[key] += report["impostor_play"][key]
         self.assertTrue(all(value > 0 for value in totals.values()), totals)
+
+
+class OutageDoorAndRoleTests(unittest.TestCase):
+    def _engine(self, roles=()) -> tuple[SimEngine, str, list[str]]:
+        engine = SimEngine(["a", "b", "c", "d", "e"], seed=2, kill_cooldown=0, impostor_roles=roles)
+        impostor = next(p for p in engine.player_ids if engine.role_of(p) is Role.IMPOSTOR)
+        crew = [p for p in engine.player_ids if p != impostor]
+        return engine, impostor, crew
+
+    def _place(self, engine: SimEngine, rooms: dict[str, str]) -> None:
+        for pid, room in rooms.items():
+            engine._players[pid].room = room
+
+    def _sabotage(self, engine: SimEngine, impostor: str, system: str) -> None:
+        engine._sabotage_cooldown = 0
+        self.assertTrue(engine.submit(SemanticAction(impostor, ActionKind.SABOTAGE, system)).accepted)
+        engine.advance()
+
+    def test_lights_out_the_crew_sees_someone_but_not_who(self) -> None:
+        engine, impostor, crew = self._engine()
+        self._place(engine, {impostor: "admin", crew[0]: "admin", crew[1]: "admin", crew[2]: "storage", crew[3]: "storage"})
+        self._sabotage(engine, impostor, "lights")
+        seen = engine.observe(crew[0])
+        self.assertEqual(("lights",), seen.outages)
+        self.assertIsNone(seen.alarm)
+        self.assertEqual({"someone"}, {p.player_id for p in seen.visible_players})
+        # Impostors are not blinded: they still recognise everyone.
+        self.assertEqual({crew[0], crew[1]}, {p.player_id for p in engine.observe(impostor).visible_players})
+        engine.submit(SemanticAction(impostor, ActionKind.KILL, crew[1]))
+        engine.advance()
+        kill = [e for e in engine.observe(crew[0]).events if e.kind is EventKind.KILL_WITNESSED]
+        self.assertEqual([None], [e.actor for e in kill])
+        # Not critical: no countdown, no loss; fixed in electrical.
+        for _ in range(15):
+            self.assertIsNone(engine.advance())
+        self._place(engine, {crew[2]: "electrical"})
+        engine.advance()
+        self.assertEqual((), engine.observe(crew[0]).outages)
+
+    def test_comms_down_the_crew_cannot_see_its_tasks(self) -> None:
+        engine, impostor, crew = self._engine()
+        self._place(engine, {pid: "admin" for pid in engine.player_ids})
+        self._sabotage(engine, impostor, "comms")
+        observation = engine.observe(crew[0])
+        self.assertEqual((), observation.self_state.tasks_remaining)
+        self.assertFalse(any(a.action is ActionKind.DO_TASK for a in observation.legal_actions))
+        self.assertTrue(engine.observe(impostor).self_state.tasks_remaining)
+        self._place(engine, {crew[0]: "communications"})
+        engine.advance()
+        self.assertTrue(engine.observe(crew[0]).self_state.tasks_remaining)
+
+    def test_shut_doors_hold_everyone_in_and_are_heard_next_door(self) -> None:
+        engine, impostor, crew = self._engine()
+        self._place(engine, {impostor: "admin", crew[0]: "electrical", crew[1]: "storage", crew[2]: "cafeteria", crew[3]: "reactor"})
+        self.assertTrue(engine.submit(SemanticAction(impostor, ActionKind.CLOSE_DOORS, "electrical")).accepted)
+        engine.submit(SemanticAction(crew[0], ActionKind.MOVE_TO, "storage"))
+        engine.advance()
+        self.assertEqual("electrical", engine._players[crew[0]].room)
+        heard = {pid for pid in crew if any(e.kind is EventKind.DOORS_CLOSED for e in engine.observe(pid).events)}
+        self.assertEqual({crew[0], crew[1]}, heard)
+        for _ in range(6):
+            engine.advance()
+        self.assertEqual("storage", engine._players[crew[0]].room)
+
+    def test_a_shapeshifted_killer_is_seen_as_the_one_it_copied(self) -> None:
+        engine, impostor, crew = self._engine(roles=("SHAPESHIFTER",))
+        self.assertEqual("SHAPESHIFTER", engine.observe(impostor).self_state.special_role)
+        self._place(engine, {impostor: "admin", crew[0]: "storage", crew[1]: "storage", crew[2]: "reactor", crew[3]: "reactor"})
+        self.assertTrue(engine.submit(SemanticAction(impostor, ActionKind.SHAPESHIFT, crew[3])).accepted)
+        engine.advance()
+        self.assertEqual(crew[3], engine.observe(impostor).self_state.disguised_as)
+        self._place(engine, {impostor: "storage"})
+        self.assertEqual({crew[3], crew[1]}, {p.player_id for p in engine.observe(crew[0]).visible_players})
+        engine.submit(SemanticAction(impostor, ActionKind.KILL, crew[1]))
+        engine.advance()
+        blamed = [e.actor for e in engine.observe(crew[0]).events if e.kind is EventKind.KILL_WITNESSED]
+        self.assertEqual([crew[3]], blamed)
+        # The shape wears off in front of the witness: the true face shows.
+        for _ in range(9):
+            engine.advance()
+        reverted = [(e.actor, e.target) for e in engine.observe(crew[0]).events if e.kind is EventKind.SHAPESHIFT_SEEN]
+        self.assertEqual([(crew[3], impostor)], reverted)
+        record_events = [e.to_record() for e in engine.events]
+        record = MatchRecord("ss", 2, {}, "sim")
+        from among_us.environment import GroundTruth
+        record.ground_truth = GroundTruth({p: engine.role_of(p).value for p in engine.player_ids}, record_events, engine.positions)
+        self.assertEqual(1, evaluate(record)["impostor_play"]["kill_sightings_misattributed"])
+
+    def test_a_vanished_phantom_is_not_perceived_and_cannot_kill(self) -> None:
+        engine, impostor, crew = self._engine(roles=("PHANTOM",))
+        self._place(engine, {impostor: "admin", crew[0]: "admin", crew[1]: "storage", crew[2]: "reactor", crew[3]: "reactor"})
+        self.assertTrue(engine.submit(SemanticAction(impostor, ActionKind.VANISH)).accepted)
+        engine.advance()
+        observation = engine.observe(crew[0])
+        self.assertIn(EventKind.VANISH_SEEN, [e.kind for e in observation.events])
+        self.assertNotIn(impostor, {p.player_id for p in observation.visible_players})
+        mine = engine.observe(impostor)
+        self.assertTrue(mine.self_state.vanished)
+        self.assertFalse(any(a.action is ActionKind.KILL for a in mine.legal_actions))
+        engine.submit(SemanticAction(impostor, ActionKind.MOVE_TO, "storage"))
+        engine.advance()
+        self.assertEqual([], [e for e in engine.observe(crew[1]).events if e.actor == impostor])
+        engine.submit(SemanticAction(impostor, ActionKind.APPEAR))
+        engine.advance()
+        self.assertIn(EventKind.APPEAR_SEEN, [e.kind for e in engine.observe(crew[1]).events])
+
+    def test_a_crewmate_never_carries_impostor_abilities(self) -> None:
+        with self.assertRaises(PerceptionViolation):
+            perceive(crew_observation(self_state=SelfState("sherlock", "admin", Role.CREWMATE, special_role="PHANTOM")), "sherlock")
+
+    def test_matches_with_special_roles_stay_leak_free(self) -> None:
+        used = Counter()
+        for seed in range(8):
+            environment = SimEnvironment(EGOS, seed=seed, impostor_roles=("SHAPESHIFTER",) if seed % 2 else ("PHANTOM",))
+            record = MatchRecord(f"r{seed}", seed, {e: e for e in EGOS}, "sim")
+            asyncio.run(run_match(environment, PipelineAgentRunner(), record, offline=True))
+            self.assertEqual("finished", record.status, record.error)
+            report = evaluate(record)
+            self.assertEqual(0, report["memory_leakage"]["violations"], seed)
+            play = report["impostor_play"]
+            used.update({key: play[key] for key in ("shapeshifts", "vanishes", "doors_closed")})
+            used.update(play["sabotages_by_system"])
+        self.assertTrue(all(used[key] > 0 for key in ("shapeshifts", "vanishes", "doors_closed")), used)
+
+    def test_impostor_roles_are_validated(self) -> None:
+        with self.assertRaises(HTTPException):
+            _match_options({"impostor_roles": ["VIPER"]})
+        self.assertEqual(["PHANTOM"], _match_options({"impostor_roles": ["PHANTOM"]})["impostor_roles"])

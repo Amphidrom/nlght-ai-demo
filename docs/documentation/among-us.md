@@ -181,6 +181,29 @@ its partners and gets these extra legal actions, in the simulation and on the se
 | `VENT <room>` | travel through the vent network to a reachable room | `VENT_SEEN` for anyone at the entry or exit — nearly as damning as a witnessed kill |
 | `SABOTAGE reactor\|o2` | a critical alarm; the crew loses unless someone reaches the room in time (fixing is a reflex) | `SABOTAGE_ALARM` for everyone, and `alarm` in every observation; nobody perceives who pulled it |
 | `REPORT <own victim>` | self-reporting as cover is allowed | an ordinary report |
+| `SABOTAGE lights` | crewmates still see that someone is there, but not who — sightings, kills and vents in the dark have no actor; fixed in electrical | `SABOTAGE_ALARM`, `outages: ["lights"]` |
+| `SABOTAGE comms` | crewmates cannot see their task list and cannot do tasks; fixed in communications | `SABOTAGE_ALARM`, `outages: ["comms"]` |
+| `CLOSE_DOORS <room>` | nobody walks in or out for a while (vents still work) | `DOORS_CLOSED`, heard in the room and next to it, nobody perceives who |
+
+Reactor and O2 are critical: unfixed, the impostors win, and the emergency button is disabled.
+Lights and comms are not critical. Only one sabotage runs at a time; doors have their own cooldown.
+
+### Special roles
+
+`impostor_roles` (e.g. `["SHAPESHIFTER"]`) hands special roles to impostors; an agent knows only its
+own (`self_state.special_role`).
+
+- **Shapeshifter** — `SHAPESHIFT <player>`: for a while it *looks like* that player. Everyone else
+  perceives the disguise, so a witness of a kill blames the copied player (`KILL_WITNESSED` names
+  the disguise). Changing shape and the shape wearing off are visible (`SHAPESHIFT_SEEN`); the
+  wearing off shows the true face.
+- **Phantom** — `VANISH` / `APPEAR`: while invisible it is in nobody's perception — no sightings, no
+  vent sightings — and it cannot kill. Vanishing and appearing in front of others are visible
+  (`VANISH_SEEN`, `APPEAR_SEEN`).
+
+Perception follows appearance throughout; at a meeting every disguise drops and every phantom is
+back. `impostor_play` adds misattributed and unidentified kill sightings, shapeshifts, vanishes,
+doors closed and sabotages per system.
 
 Fake tasks look like real ones to everyone else. After a kill the impostor is at a decision point
 again (`observed: KILL_COMMITTED`). The evaluation adds `impostor_play`: kills and how many were

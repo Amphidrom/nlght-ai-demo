@@ -42,6 +42,12 @@ class ActionKind(StrEnum):
     SAY = "SAY"
     SABOTAGE = "SABOTAGE"
     VENT = "VENT"
+    CLOSE_DOORS = "CLOSE_DOORS"
+    #: Shapeshifter: take on another player's appearance for a while.
+    SHAPESHIFT = "SHAPESHIFT"
+    #: Phantom: turn invisible, and visible again.
+    VANISH = "VANISH"
+    APPEAR = "APPEAR"
     VOTE = "VOTE"
     SKIP_VOTE = "SKIP_VOTE"
     WAIT = "WAIT"
@@ -67,6 +73,13 @@ class EventKind(StrEnum):
     #: A critical sabotage alarm started (``target`` is the system) or was fixed.
     SABOTAGE_ALARM = "SABOTAGE_ALARM"
     SABOTAGE_FIXED = "SABOTAGE_FIXED"
+    #: The doors of ``room`` slammed shut; heard in the room and next to it.
+    DOORS_CLOSED = "DOORS_CLOSED"
+    #: Someone was seen changing shape: ``actor`` turned into ``target``.
+    SHAPESHIFT_SEEN = "SHAPESHIFT_SEEN"
+    #: Someone was seen vanishing into thin air, or appearing out of it.
+    VANISH_SEEN = "VANISH_SEEN"
+    APPEAR_SEEN = "APPEAR_SEEN"
 
 
 @dataclass(frozen=True)
@@ -113,6 +126,12 @@ class SelfState:
     kill_ready: bool = False
     #: Impostors know their partners, as in the real game. Empty for crew.
     known_impostors: tuple[str, ...] = ()
+    #: A special role on top of the team role ("SHAPESHIFTER", "PHANTOM"), only ever one's own.
+    special_role: str | None = None
+    #: Whose appearance a shapeshifter currently wears.
+    disguised_as: str | None = None
+    #: A phantom that cannot be seen right now.
+    vanished: bool = False
 
 
 @dataclass(frozen=True)
@@ -130,6 +149,8 @@ class Observation:
     roster: tuple[str, ...] = ()
     #: The critical sabotage everyone can see right now ("reactor", "o2"), if any.
     alarm: str | None = None
+    #: Non-critical sabotages in effect ("lights", "comms"); public, like the alarm.
+    outages: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -293,6 +314,9 @@ def observation_from_dict(raw: Any) -> Observation:
         tasks_remaining=_strings(self_raw.get("tasks_remaining"), "self_state.tasks_remaining"),
         kill_ready=bool(self_raw.get("kill_ready", False)),
         known_impostors=_strings(self_raw.get("known_impostors"), "self_state.known_impostors"),
+        special_role=_optional_str(self_raw.get("special_role"), "self_state.special_role"),
+        disguised_as=_optional_str(self_raw.get("disguised_as"), "self_state.disguised_as"),
+        vanished=bool(self_raw.get("vanished", False)),
     )
     events = tuple(
         ObservedEvent(**{
@@ -324,5 +348,6 @@ def observation_from_dict(raw: Any) -> Observation:
         decision_reason=str(body.get("decision_reason", "")),
         roster=_strings(body.get("roster"), "roster"),
         alarm=_optional_str(body.get("alarm"), "alarm"),
+        outages=_strings(body.get("outages"), "outages"),
     )
 

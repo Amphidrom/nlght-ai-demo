@@ -23,7 +23,10 @@ from among_us.protocol import EventKind, ObservedEvent
 from among_us.sim.map import ADJACENCY
 
 _DETAILS = ("room", "actor", "target", "text")
-_SALIENT = frozenset({EventKind.KILL_WITNESSED, EventKind.BODY_FOUND, EventKind.KILL_COMMITTED, EventKind.VENT_SEEN})
+_SALIENT = frozenset({
+    EventKind.KILL_WITNESSED, EventKind.BODY_FOUND, EventKind.KILL_COMMITTED, EventKind.VENT_SEEN,
+    EventKind.SHAPESHIFT_SEEN, EventKind.VANISH_SEEN,
+})
 
 
 def rng_for(match_seed: int, agent_id: str, event_id: str, purpose: str) -> random.Random:

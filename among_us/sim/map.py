@@ -60,8 +60,15 @@ VENTS: tuple[tuple[str, str], ...] = (
     ("admin", "cafeteria"),
 )
 
-#: Critical sabotages and the room where the crew fixes them.
-SABOTAGE_ROOMS: dict[str, str] = {"reactor": "reactor", "o2": "o2"}
+#: Sabotages and the room where the crew fixes them. Reactor and O2 are critical: unfixed, the
+#: impostors win. Lights blind the crew, comms hide their tasks.
+SABOTAGE_ROOMS: dict[str, str] = {"reactor": "reactor", "o2": "o2", "lights": "electrical", "comms": "communications"}
+CRITICAL_SABOTAGES = frozenset({"reactor", "o2"})
+
+#: Rooms whose doors an impostor can shut (The Skeld).
+DOOR_ROOMS: frozenset[str] = frozenset({
+    "cafeteria", "medbay", "security", "electrical", "storage", "upper_engine", "lower_engine",
+})
 
 EMERGENCY_BUTTON_ROOM = "cafeteria"
 SPAWN_ROOM = "cafeteria"

@@ -50,6 +50,13 @@ def update_beliefs(
         elif kind == EventKind.VENT_SEEN.value:
             # Only impostors vent: seeing it is nearly as damning as seeing a kill.
             bump(actor, 0.9, memory)
+        elif kind == EventKind.SHAPESHIFT_SEEN.value:
+            # Whoever changes shape is an impostor: the true face is the one it shifted from,
+            # or the one it reverted to.
+            true_face = actor if details.get("text") != "reverted" else details.get("target")
+            bump(true_face, 1.0, memory)
+        elif kind in (EventKind.VANISH_SEEN.value, EventKind.APPEAR_SEEN.value):
+            bump(actor, 0.9, memory)
         elif kind == EventKind.TASK_SEEN.value:
             bump(actor, -0.08, memory)
         elif kind in (EventKind.PLAYER_LEFT.value, EventKind.PLAYER_ENTERED.value):

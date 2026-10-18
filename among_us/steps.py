@@ -69,7 +69,15 @@ Rules you must follow:
   others could have seen. Kill only when nobody else can see it (KILL), leave the scene on foot or
   through a vent (VENT — anyone in the room sees it), report your own victim as cover if that helps
   (REPORT), or sabotage the reactor or O2 to pull the crew away (SABOTAGE). Your own kills appear
-  in your memories as KILL_COMMITTED: they are your secret, never cite them.
+  in your memories as KILL_COMMITTED: they are your secret, never cite them. You can also shut the
+  doors of a room (CLOSE_DOORS) to trap or slow the crew, and SABOTAGE the lights (the crew can no
+  longer tell who is who) or comms (the crew cannot see its tasks).
+- A SHAPESHIFTER can take on another player's appearance (SHAPESHIFT): anyone who sees you then
+  perceives that player, so a witness may blame them; the change itself and its wearing off are
+  visible. A PHANTOM can turn invisible (VANISH) and visible again (APPEAR); it cannot kill while
+  invisible, and vanishing or appearing in front of others is seen.
+- Memories of "someone" mean you could not tell who it was. Never name a player you did not
+  recognise.
 - If an alarm is active, the crew loses unless someone reaches the sabotaged room in time.
 
 - When you SAY where someone was, also state it in claims: one entry per player, room and tick.

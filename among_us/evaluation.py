@@ -8,7 +8,7 @@ never perceived is a defect.
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
 from itertools import combinations
 from typing import Any
@@ -159,6 +159,7 @@ def _impostor_play(truth: Any, winner: dict[str, Any] | None) -> dict[str, Any]:
         if e["kind"] == "MEETING" and e["target"] is not None and killer_of.get(e["target"]) == e["actor"]
     ]
     reason = (winner or {}).get("reason", "")
+    kill_views = [(e, view) for e in kills for agent, view in e["views"].items() if agent != e["actor"]]
     return {
         "kills": len(kills),
         "kills_witnessed": len(seen_kills),
@@ -168,6 +169,13 @@ def _impostor_play(truth: Any, winner: dict[str, Any] | None) -> dict[str, Any]:
         "sabotages_fixed": len(fixed),
         "won_by_sabotage": "sabotage" in reason,
         "self_reports": len(self_reports),
+        # A witness who saw a disguise strike blames the wrong player; in the dark it sees nobody.
+        "kill_sightings_misattributed": sum(1 for e, v in kill_views if v.get("actor") not in (None, e["actor"])),
+        "kill_sightings_unidentified": sum(1 for e, v in kill_views if v.get("actor") is None),
+        "shapeshifts": sum(1 for e in events if e["kind"] == "SHAPESHIFT"),
+        "vanishes": sum(1 for e in events if e["kind"] == "VANISH"),
+        "doors_closed": sum(1 for e in events if e["kind"] == "DOORS"),
+        "sabotages_by_system": dict(Counter(e["target"] for e in sabotages)),
     }
 
 

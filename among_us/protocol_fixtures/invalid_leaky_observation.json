@@ -17,7 +17,10 @@
         "calibrate_distributor"
       ],
       "kill_ready": false,
-      "known_impostors": []
+      "known_impostors": [],
+      "special_role": null,
+      "disguised_as": null,
+      "vanished": false
     },
     "visible_players": [
       {
@@ -275,6 +278,7 @@
       "maverick",
       "sherlock"
     ],
-    "alarm": null
+    "alarm": null,
+    "outages": []
   }
 }

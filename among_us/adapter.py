@@ -37,7 +37,7 @@ from among_us.match import (
     run_match,
 )
 from among_us.scheduler import DecisionScheduler, SchedulerConfig
-from among_us.sim.engine import MAX_PLAYERS, MIN_PLAYERS, max_impostors
+from among_us.sim.engine import MAX_PLAYERS, MIN_PLAYERS, SPECIAL_ROLES, max_impostors
 from among_us.sim.map import CORRIDORS, ROOMS
 
 logger = logging.getLogger(__name__)
@@ -143,7 +143,10 @@ class AmongUsAdapter:
     def _environment(options: dict[str, Any]) -> GameEnvironment:
         if options["environment"] == "bridge":
             return BridgeEnvironment(options["bridge_host"], options["bridge_port"])
-        return SimEnvironment(list(options["assignment"]), seed=options["seed"], impostors=options["impostors"])
+        return SimEnvironment(
+            list(options["assignment"]), seed=options["seed"], impostors=options["impostors"],
+            impostor_roles=options["impostor_roles"],
+        )
 
     def _require(self, match_id: str) -> MatchRecord:
         record = self._matches.get(match_id)
@@ -217,7 +220,11 @@ def _match_options(body: dict[str, Any]) -> dict[str, Any]:
         scheduler = SchedulerConfig.model_validate(body.get("scheduler") or {})
     except ValidationError as exc:
         raise HTTPException(422, f"Invalid scheduler settings: {exc.errors(include_url=False)}") from exc
+    roles = body.get("impostor_roles") or []
+    if not isinstance(roles, list) or set(roles) - set(SPECIAL_ROLES) or len(roles) > impostors:
+        raise HTTPException(422, f"impostor_roles must list at most {impostors} of {list(SPECIAL_ROLES)}.")
     return {
+        "impostor_roles": roles,
         "scheduler": scheduler,
         "modes": modes,
         "environment": environment,

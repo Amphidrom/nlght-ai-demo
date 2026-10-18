@@ -28,7 +28,7 @@ from among_us.protocol import EventKind
 #: What any profile notices regardless of temperament: a murder, a body, a meeting.
 ALWAYS_NOTICED = frozenset({
     EventKind.KILL_WITNESSED, EventKind.BODY_FOUND, EventKind.MEETING_CALLED,
-    EventKind.KILL_COMMITTED, EventKind.SABOTAGE_ALARM,
+    EventKind.KILL_COMMITTED, EventKind.SABOTAGE_ALARM, EventKind.SHAPESHIFT_SEEN,
 })
 
 Probability = Annotated[float, Field(ge=0.0, le=1.0)]

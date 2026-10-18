@@ -22,6 +22,10 @@ def perceive(observation: Observation, agent_id: str) -> tuple[ObservedEvent, ..
         raise PerceptionViolation("a dead player is not an agent")
     if observation.self_state.role is Role.CREWMATE and observation.self_state.known_impostors:
         raise PerceptionViolation("a crewmate observation names impostors")
+    if observation.self_state.role is Role.CREWMATE and (
+        observation.self_state.special_role or observation.self_state.disguised_as or observation.self_state.vanished
+    ):
+        raise PerceptionViolation("a crewmate observation carries impostor abilities")
     seen: set[str] = set()
     for event in observation.events:
         if event.event_id in seen:

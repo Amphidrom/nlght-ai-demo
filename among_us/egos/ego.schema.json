@@ -73,7 +73,11 @@
         "KILL_COMMITTED",
         "VENT_SEEN",
         "SABOTAGE_ALARM",
-        "SABOTAGE_FIXED"
+        "SABOTAGE_FIXED",
+        "DOORS_CLOSED",
+        "SHAPESHIFT_SEEN",
+        "VANISH_SEEN",
+        "APPEAR_SEEN"
       ],
       "title": "EventKind",
       "type": "string"
