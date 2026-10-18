@@ -10,6 +10,8 @@
 - among-us: schedule agent turns — priority (meetings, salient observations first), a cap on concurrent model turns, a per-tick model budget with policy fallback, and a per-turn deadline; every decision records its scheduling mode. (working/among-us-slice)
 - among-us: define ego files by one strict pydantic schema (typed, ranged, sectioned by cognitive stage, no unknown keys) with a generated JSON schema for editors. (working/among-us-slice)
 - among-us: define bridge protocol v1 (NDJSON over loopback) with shared fixtures and a `BridgeEnvironment` client. (working/among-us-slice)
+- among-us: fix a leak in the simulation — meeting observations showed where every other player was; at the table they are now only "meeting", as in the real game. (working/among-us-slice)
+- among-us: a bot named like an ego keeps that ego; free egos go to the other bots only afterwards. (working/among-us-slice)
 - among-us: the real game runs through the nlght Impostor server (nlght-ai-impostor) instead of a client mod: observations carry the lobby `roster` so humans are suspects too, agents get their ego by bot name, a bridge match needs no player map, and a decision request produced by the server is a contract fixture. The unbuilt BepInEx/Reactor client-mod skeleton is removed. (working/among-us-slice)
 - trigger: split `build_invocation()` out of `build_http_invocation()` so in-process callers can start workflows without an HTTP request. (working/among-us-slice)
 - docs: draft the permission request to Innersloth. (working/among-us-slice)

@@ -279,23 +279,23 @@ async def run_match(
 def _assign_egos(record: MatchRecord, players: list[str]) -> None:
     """Give every agent the bridge introduced an ego: its own name if that is an ego, else a free one.
 
-    The nlght Impostor server names its bots after egos, so this is usually the identity.
+    The nlght Impostor server names its bots after egos, so this is usually the identity. Names that
+    are egos are served first, so a later bot cannot take an ego another bot is named after.
     """
 
     known = set(ego_ids())
     taken = {record.egos[p] for p in players if p in record.egos}
+    for player in players:
+        if player not in record.egos and player in known and player not in taken:
+            record.egos[player] = player
+            taken.add(player)
     free = [ego for ego in sorted(known) if ego not in taken]
     for player in players:
         if player in record.egos:
             continue
-        if player in known and player not in taken:
-            record.egos[player] = player
-            taken.add(player)
-            free = [ego for ego in free if ego != player]
-        elif free:
-            record.egos[player] = free.pop(0)
-        else:
+        if not free:
             raise ValueError(f"more agents than egos: no ego left for {player}")
+        record.egos[player] = free.pop(0)
 
 
 async def _decide_batch(

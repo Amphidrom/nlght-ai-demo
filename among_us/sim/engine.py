@@ -174,8 +174,10 @@ class SimEngine:
         player.phase_seen = self.phase
         player.kill_targets_seen = frozenset(self._kill_targets(pid)) if player.kill_cooldown == 0 else frozenset()
         in_meeting = self.phase in (Phase.MEETING, Phase.VOTING)
+        # At the meeting table everyone is visible, but not where they were: that is what the
+        # discussion is about. The real game (and the nlght Impostor server) reports it the same way.
         visible = tuple(
-            VisiblePlayer(other.player_id, other.room, other.alive)
+            VisiblePlayer(other.player_id, "meeting" if in_meeting else other.room, other.alive)
             for other in self._players.values()
             if other.player_id != pid and other.alive and (in_meeting or other.room == player.room)
         )

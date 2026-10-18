@@ -187,6 +187,17 @@ class SimulationTests(unittest.TestCase):
             witnessed = {event.event_id for event in engine.events if pid in event.witnesses}
             self.assertLessEqual(ids, witnessed, pid)
 
+    def test_meetings_do_not_reveal_where_the_others_were(self) -> None:
+        engine = SimEngine(EGOS, seed=1)
+        for pid in EGOS:
+            engine._players[pid].room = "electrical" if pid == "echo" else "admin"
+        engine.submit(SemanticAction("sherlock", ActionKind.WAIT))
+        engine._start_meeting(engine._players["sherlock"], None, "test")
+        observation = engine.observe("sherlock")
+        self.assertEqual(Phase.MEETING, observation.phase)
+        self.assertEqual({"meeting"}, {p.room for p in observation.visible_players})
+        self.assertEqual("admin", observation.self_state.room)
+
     def test_a_fake_task_looks_like_a_real_one(self) -> None:
         _, environment = play(1)
         fakes = [e for e in environment.ground_truth().events if e["kind"] == "FAKE_TASK"]
@@ -762,6 +773,15 @@ class ServerContractTests(unittest.TestCase):
         self.assertNotIn(record.egos["ada"], {"sherlock", "bubbles"})
         with self.assertRaises(ValueError):
             _assign_egos(MatchRecord("m", 1, {}, "bridge"), [f"bot{i}" for i in range(16)])
+
+    def test_a_bot_named_like_an_ego_keeps_it(self) -> None:
+        from among_us.match import _assign_egos
+
+        # Found in the first end-to-end run: "dax" took the free ego "echo" before the bot named Echo.
+        record = MatchRecord("m", 1, {}, "bridge")
+        _assign_egos(record, ["ada", "bolt", "cleo", "dax", "echo"])
+        self.assertEqual("echo", record.egos["echo"])
+        self.assertEqual(5, len(set(record.egos.values())))
 
     def test_a_bridge_match_needs_no_player_map(self) -> None:
         options = _match_options({"environment": "bridge"})
