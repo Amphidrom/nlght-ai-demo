@@ -1,6 +1,6 @@
 """The perception boundary: an agent takes in its own observation, nothing else.
 
-Visibility is filtered at the source (simulation or C# bridge). This module is
+Visibility is filtered at the source (simulation or the nlght Impostor server). This module is
 the second wall: it refuses an observation addressed to someone else, one
 that discloses a role other than the agent's own, or an event the agent could
 not have perceived. A violation raises — a leak is a defect, not noise.

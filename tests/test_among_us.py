@@ -725,3 +725,44 @@ class DashboardTests(unittest.TestCase):
         observation = to_dict(engine.observe("sherlock"))
         self.assertNotIn("players", observation)
         self.assertNotIn("role", json.dumps(observation["visible_players"]))
+
+
+class ServerContractTests(unittest.TestCase):
+    """The nlght Impostor server (nlght-ai-impostor) is the bridge for the real game."""
+
+    def _server_observation(self) -> Observation:
+        return decode((FIXTURES / "server_decision_request.json").read_text(encoding="utf-8")).observation
+
+    def test_a_decision_request_from_the_server_decodes(self) -> None:
+        observation = self._server_observation()
+        self.assertEqual(observation.agent_id, observation.self_state.player_id)
+        perceive(observation, observation.agent_id)
+        self.assertIn(observation.agent_id, observation.roster)
+        self.assertTrue(observation.legal_actions)
+
+    def test_an_agent_turn_answers_a_server_observation_with_a_legal_action(self) -> None:
+        observation = self._server_observation()
+        runner = PipelineAgentRunner()
+        payload = {"match_id": "real", "match_seed": 1, "agent_id": observation.agent_id, "ego": "sherlock",
+                   "players": [observation.agent_id], "source": "nlght-ai-impostor", "offline": True,
+                   "observation": to_dict(observation)}
+        result = asyncio.run(runner.decide(agent_id=observation.agent_id, session_key="s", payload=payload))
+        legal = {(a.action.value, a.target) for a in observation.legal_actions}
+        self.assertIn((result["action"]["action"], result["action"]["target"]), legal)
+        # Humans in the roster are suspects too, not only the agents the orchestrator runs.
+        self.assertIn("host", result["beliefs"])
+
+    def test_egos_follow_the_bot_names(self) -> None:
+        from among_us.match import _assign_egos
+
+        record = MatchRecord("m", 1, {}, "bridge")
+        _assign_egos(record, ["sherlock", "bubbles", "ada"])
+        self.assertEqual("sherlock", record.egos["sherlock"])
+        self.assertEqual("bubbles", record.egos["bubbles"])
+        self.assertNotIn(record.egos["ada"], {"sherlock", "bubbles"})
+        with self.assertRaises(ValueError):
+            _assign_egos(MatchRecord("m", 1, {}, "bridge"), [f"bot{i}" for i in range(16)])
+
+    def test_a_bridge_match_needs_no_player_map(self) -> None:
+        options = _match_options({"environment": "bridge"})
+        self.assertEqual({}, options["assignment"])

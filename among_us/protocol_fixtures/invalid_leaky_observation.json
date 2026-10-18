@@ -267,6 +267,13 @@
         "target": null
       }
     ],
-    "decision_reason": "goal reached"
+    "decision_reason": "goal reached",
+    "roster": [
+      "archive",
+      "bubbles",
+      "echo",
+      "maverick",
+      "sherlock"
+    ]
   }
 }

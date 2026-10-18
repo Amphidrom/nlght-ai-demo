@@ -93,9 +93,9 @@ class SimEnvironment:
 
 
 class BridgeEnvironment:
-    """Client for the in-game bridge mod (``among_us/bridge``).
+    """Client for the agent bridge of the nlght Impostor server (nlght-ai-impostor).
 
-    The bridge pushes a ``decision_request`` whenever one of its players reaches
+    The server runs one in-process bot client per agent and pushes a ``decision_request`` whenever one of those bots reaches
     a decision point and answers each ``action`` with an ``action_result``. The
     game runs in real time; ``advance`` only reports whether it has ended.
     """

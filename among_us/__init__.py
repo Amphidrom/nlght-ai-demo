@@ -1,7 +1,8 @@
 """nlght-ai agents with an ego and an imperfect memory, playing Among Us.
 
-Experimental. The agents run against a deterministic simulation here; the
-C# bridge in ``among_us/bridge`` connects the same protocol to the real game.
+Experimental. The agents run against a deterministic simulation here, or in
+the real game through the nlght Impostor server (repository nlght-ai-impostor),
+which speaks the same protocol.
 """
 
 from among_us.steps import (

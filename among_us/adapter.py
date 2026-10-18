@@ -184,8 +184,11 @@ def _match_options(body: dict[str, Any]) -> dict[str, Any]:
     # then ``players`` maps the bridge's player ids to egos.
     players = body.get("players")
     if environment == "bridge":
-        if not isinstance(players, dict) or not players:
-            raise HTTPException(422, "A bridge match needs players: {bridge_player_id: ego_id}.")
+        # The nlght Impostor server names its bots after egos; an explicit map is optional.
+        if players is None:
+            players = {}
+        if not isinstance(players, dict):
+            raise HTTPException(422, "players must map bridge player ids to egos.")
         assignment = {str(k): str(v) for k, v in players.items()}
         if set(assignment.values()) - set(ego_ids()):
             raise HTTPException(422, "players maps to an unknown ego.")
@@ -201,7 +204,7 @@ def _match_options(body: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(422, "seed, impostors and bridge_port must be integers.") from exc
     # The bridge is always local, and only its own port range is reachable:
     # a request cannot point the orchestrator at another local service.
-    if not 1 <= impostors <= max_impostors(len(assignment)):
+    if environment == "sim" and not 1 <= impostors <= max_impostors(len(assignment)):
         raise HTTPException(422, f"{len(assignment)} players allow 1 to {max_impostors(len(assignment))} impostors.")
     if not 47100 <= port <= 47199:
         raise HTTPException(422, "bridge_port must be within 47100-47199.")

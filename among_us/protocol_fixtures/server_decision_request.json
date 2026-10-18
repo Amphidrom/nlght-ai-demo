@@ -1,0 +1,170 @@
+{
+  "type": "decision_request",
+  "protocol": 1,
+  "observation": {
+    "agent_id": "cleo",
+    "tick": 1,
+    "phase": "TASKS",
+    "self_state": {
+      "player_id": "cleo",
+      "room": "cafeteria",
+      "role": "CREWMATE",
+      "alive": true,
+      "tasks_remaining": [
+        "fix_wiring#0",
+        "start_reactor#1",
+        "divert_power#2",
+        "upload_data#3"
+      ],
+      "kill_ready": false,
+      "known_impostors": []
+    },
+    "visible_players": [
+      {
+        "player_id": "host",
+        "room": "cafeteria",
+        "alive": true
+      },
+      {
+        "player_id": "ada",
+        "room": "cafeteria",
+        "alive": true
+      },
+      {
+        "player_id": "bolt",
+        "room": "cafeteria",
+        "alive": true
+      },
+      {
+        "player_id": "dax",
+        "room": "cafeteria",
+        "alive": true
+      }
+    ],
+    "visible_bodies": [],
+    "events": [
+      {
+        "event_id": "cleo-00001",
+        "tick": 1,
+        "kind": "PLAYER_ENTERED",
+        "room": "cafeteria",
+        "actor": "host",
+        "target": null,
+        "text": null
+      },
+      {
+        "event_id": "cleo-00002",
+        "tick": 1,
+        "kind": "PLAYER_ENTERED",
+        "room": "cafeteria",
+        "actor": "ada",
+        "target": null,
+        "text": null
+      },
+      {
+        "event_id": "cleo-00003",
+        "tick": 1,
+        "kind": "PLAYER_ENTERED",
+        "room": "cafeteria",
+        "actor": "bolt",
+        "target": null,
+        "text": null
+      },
+      {
+        "event_id": "cleo-00004",
+        "tick": 1,
+        "kind": "PLAYER_ENTERED",
+        "room": "cafeteria",
+        "actor": "dax",
+        "target": null,
+        "text": null
+      }
+    ],
+    "legal_actions": [
+      {
+        "action": "MOVE_TO",
+        "target": "admin"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "communications"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "electrical"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "lower_engine"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "medbay"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "navigation"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "o2"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "reactor"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "security"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "shields"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "storage"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "upper_engine"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "weapons"
+      },
+      {
+        "action": "DO_TASK",
+        "target": "fix_wiring#0"
+      },
+      {
+        "action": "DO_TASK",
+        "target": "start_reactor#1"
+      },
+      {
+        "action": "DO_TASK",
+        "target": "divert_power#2"
+      },
+      {
+        "action": "DO_TASK",
+        "target": "upload_data#3"
+      },
+      {
+        "action": "CALL_MEETING",
+        "target": null
+      },
+      {
+        "action": "WAIT",
+        "target": null
+      }
+    ],
+    "decision_reason": "goal reached",
+    "roster": [
+      "ada",
+      "bolt",
+      "cleo",
+      "dax",
+      "host"
+    ]
+  }
+}

@@ -203,6 +203,7 @@ class SimEngine:
             events=events,
             legal_actions=self.legal_actions(pid),
             decision_reason=reason,
+            roster=tuple(sorted(self._players)),
         )
 
     def legal_actions(self, pid: str) -> tuple[LegalAction, ...]:

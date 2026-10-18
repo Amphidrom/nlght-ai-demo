@@ -109,9 +109,14 @@ class AmongUsPerceiveStep(StepBase):
             logger.warning("among_us.perceive.rejected | cid=%s | %s", ctx.correlation_id, exc)
             await ctx.emitter.emit(Signal("assistant", json.dumps({"error": f"rejected observation: {exc}"}), kind="result"))
             return StepResult(ctx=ctx, verdict="done")
-        players = [str(p) for p in payload.get("players") or []] or sorted(
-            {observation.agent_id, *(p.player_id for p in observation.visible_players)}
-        )
+        # Suspects are everyone in the lobby: the agents the orchestrator runs and, in the real game,
+        # the humans in the roster.
+        players = sorted({
+            observation.agent_id,
+            *(str(p) for p in payload.get("players") or []),
+            *observation.roster,
+            *(p.player_id for p in observation.visible_players),
+        })
         _set_state(
             ctx,
             ego=ego.ego_id,

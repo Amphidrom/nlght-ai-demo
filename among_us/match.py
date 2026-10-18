@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from among_us.ego import ego_ids
 from among_us.environment import GameEnvironment, GroundTruth
 from among_us.protocol import (
     ActionKind,
@@ -252,9 +253,7 @@ async def run_match(
     try:
         hello = await environment.connect()
         players = list(hello.players)
-        missing = [p for p in players if p not in record.egos]
-        if missing:
-            raise ValueError(f"no ego assigned to players {missing}")
+        _assign_egos(record, players)
         record.append({"type": "hello", **to_dict(hello)})
         for _ in range(max_iterations):
             for _ in range(len(players) * 3):
@@ -275,6 +274,28 @@ async def run_match(
         record.ground_truth = environment.ground_truth()
         await environment.close()
     return record
+
+
+def _assign_egos(record: MatchRecord, players: list[str]) -> None:
+    """Give every agent the bridge introduced an ego: its own name if that is an ego, else a free one.
+
+    The nlght Impostor server names its bots after egos, so this is usually the identity.
+    """
+
+    known = set(ego_ids())
+    taken = {record.egos[p] for p in players if p in record.egos}
+    free = [ego for ego in sorted(known) if ego not in taken]
+    for player in players:
+        if player in record.egos:
+            continue
+        if player in known and player not in taken:
+            record.egos[player] = player
+            taken.add(player)
+            free = [ego for ego in free if ego != player]
+        elif free:
+            record.egos[player] = free.pop(0)
+        else:
+            raise ValueError(f"more agents than egos: no ego left for {player}")
 
 
 async def _decide_batch(

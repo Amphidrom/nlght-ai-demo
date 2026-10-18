@@ -1,14 +1,14 @@
 # Among Us agents (experimental)
 
 nlght-ai agents with an ego and an imperfect memory play Among Us. The first vertical slice
-runs against a deterministic simulation; a C# bridge (`among_us/bridge`) connects the same
-protocol to the real game and is not built or tested yet.
+runs against a deterministic simulation; the nlght Impostor server (repository `nlght-ai-impostor`)
+connects the same protocol to the real game.
 
 ## Architecture
 
 ```
 GameEnvironment ── SimEnvironment  (among_us/sim, seed-deterministic)
-                └─ BridgeEnvironment (NDJSON over 127.0.0.1:47100 → C# BepInEx/Reactor mod)
+                └─ BridgeEnvironment (NDJSON over 127.0.0.1:47100 → nlght Impostor server)
       │ Observation per agent (visibility-filtered) · SemanticAction · ActionResult
 Match orchestrator (among_us/match.py, HTTP adapter among_us/adapter.py)
       │ one workflow run per agent and decision point, session "among-us:{match}:{agent}"
@@ -101,6 +101,39 @@ if the committed schema drifts from the model.
 Every random choice draws from `sha256(match_seed | agent | event | purpose)`, so a match
 replays exactly and differences between egos come from their profiles alone.
 
+## The real game: nlght Impostor server
+
+The real game is reached through `nlght-ai-impostor`, a fork of the open-source Among Us server
+[Impostor](https://github.com/Impostor/Impostor) with the bot layer of
+[among-us-llm](https://github.com/realmrhigh/among-us-llm) (both GPL-3.0; a separate repository and
+process, so this demo is not affected by the license).
+
+- **Every agent is a player.** In Among Us a player is a client connection, and the game logic runs
+  on the host's client. The server therefore runs one *in-process* bot client per agent that speaks
+  the client protocol into Impostor's message handler — no game installation per agent. A human
+  hosts the lobby with the normal game and adds agents by chat command.
+- **The body stays in the server, the mind is here.** Walking (path finding on the map graph),
+  tasks at their consoles, kills, reports, the emergency button, chat and votes are executed by the
+  bot. Every decision point — goal reached, a kill or body seen, a kill opportunity, each meeting
+  turn and the vote — becomes a `decision_request`; the agent's `SemanticAction` comes back over the
+  same protocol. Without an answer in time, the bot's built-in heuristic decides.
+- **Vision is filtered at the source.** A network client receives everyone's position; the bot
+  reports only what its own character could see, and `perception.py` re-checks it here.
+- **Bots are named after egos** (`Sherlock`, `Bubbles`, …), so the orchestrator assigns each its ego
+  by name. Skeld rooms use the simulation's room names, so the dashboard map and location claims
+  work unchanged.
+- `among_us/protocol_fixtures/server_decision_request.json` is a message the server produced in its
+  test suite; `tests/test_among_us.py` holds the contract.
+
+A bridge match starts after the agents have joined the lobby:
+
+```json
+{"environment": "bridge"}
+```
+
+There is no spectator ground truth for the real game yet, so leakage, recall and claims cannot be
+scored against the truth there.
+
 ## Running a match
 
 ```powershell
@@ -178,4 +211,5 @@ Agent and model text is rendered as text only, never as markup.
 
 ## Not in this slice
 
-An Impostor server plugin, and any use of Among Us artwork.
+A test against a real Among Us client, ground truth from the real game for scoring, vents and
+special roles, and any use of Among Us artwork.

@@ -270,8 +270,9 @@ Invoke-RestMethod -Method Post http://localhost:9000/among-us/api/matches `
 ```
 
 Add `"offline": true` to play without a model or database. Watch and start matches in the
-spectator dashboard at <http://localhost:9000/among-us>. The C# bridge for the real game
-(`among_us/bridge`) is an unbuilt skeleton. Architecture, metrics and the bridge protocol are in
+spectator dashboard at <http://localhost:9000/among-us>. The real game runs through the
+nlght Impostor server (repository `nlght-ai-impostor`): a private Among Us server whose bots are
+these agents, in lobbies a human hosts. Architecture, metrics and the bridge protocol are in
 `docs/documentation/among-us.md`.
 
 ## API quickstart

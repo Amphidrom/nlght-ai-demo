@@ -117,6 +117,8 @@ class Observation:
     events: tuple[ObservedEvent, ...] = ()
     legal_actions: tuple[LegalAction, ...] = ()
     decision_reason: str = ""
+    #: Everyone in the lobby, humans included — public knowledge in the real game.
+    roster: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -309,5 +311,6 @@ def observation_from_dict(raw: Any) -> Observation:
             for a in _list(body.get("legal_actions"), "legal_actions")
         ),
         decision_reason=str(body.get("decision_reason", "")),
+        roster=_strings(body.get("roster"), "roster"),
     )
 
