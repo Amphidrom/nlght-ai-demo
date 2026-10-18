@@ -3,6 +3,8 @@
 
 """Entrypoint for the six small nlght-ai showcase cases."""
 
+from among_us import STEPS as AMONG_US_STEPS
+from among_us.adapter import AmongUsAdapter
 from document_intake import IntakeExtractStep, IntakeRespondStep, IntakeValidateStep
 from incident_triage import IncidentClassifyStep, IncidentNormalizeStep, IncidentRespondStep
 from knowledge_base import (
@@ -42,11 +44,13 @@ for step in (
     KnowledgeIngestReportStep,
     KnowledgeAnswerStep,
     KnowledgeNothingFoundStep,
+    *AMONG_US_STEPS,
 ):
     step_registry.register(step)
 
 tool_registry.register(ShippingRateTool)
 http_adapter_registry.register(ShowcaseAdapter())
+http_adapter_registry.register(AmongUsAdapter())
 
 
 def run() -> None:

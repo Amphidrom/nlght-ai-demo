@@ -1,0 +1,271 @@
+{
+  "type": "decision_request",
+  "protocol": 1,
+  "observation": {
+    "agent_id": "sherlock",
+    "tick": 4,
+    "phase": "TASKS",
+    "self_state": {
+      "player_id": "sherlock",
+      "room": "electrical",
+      "role": "CREWMATE",
+      "alive": true,
+      "tasks_remaining": [
+        "upload_data_admin",
+        "download_data_comms",
+        "inspect_sample",
+        "calibrate_distributor"
+      ],
+      "kill_ready": false,
+      "known_impostors": []
+    },
+    "visible_players": [
+      {
+        "player_id": "archive",
+        "room": "electrical",
+        "alive": true
+      },
+      {
+        "player_id": "bubbles",
+        "room": "electrical",
+        "alive": true
+      },
+      {
+        "player_id": "echo",
+        "room": "electrical",
+        "alive": true
+      },
+      {
+        "player_id": "maverick",
+        "room": "electrical",
+        "alive": true
+      }
+    ],
+    "visible_bodies": [],
+    "events": [
+      {
+        "event_id": "e0001",
+        "tick": 1,
+        "kind": "PLAYER_LEFT",
+        "room": "cafeteria",
+        "actor": "archive",
+        "target": "storage",
+        "text": null,
+        "evidence_ids": []
+      },
+      {
+        "event_id": "e0002",
+        "tick": 1,
+        "kind": "PLAYER_LEFT",
+        "room": "cafeteria",
+        "actor": "bubbles",
+        "target": "storage",
+        "text": null,
+        "evidence_ids": []
+      },
+      {
+        "event_id": "e0005",
+        "tick": 1,
+        "kind": "PLAYER_LEFT",
+        "room": "cafeteria",
+        "actor": "echo",
+        "target": "storage",
+        "text": null,
+        "evidence_ids": []
+      },
+      {
+        "event_id": "e0009",
+        "tick": 1,
+        "kind": "PLAYER_LEFT",
+        "room": "cafeteria",
+        "actor": "maverick",
+        "target": "storage",
+        "text": null,
+        "evidence_ids": []
+      },
+      {
+        "event_id": "e0016",
+        "tick": 1,
+        "kind": "PLAYER_ENTERED",
+        "room": "storage",
+        "actor": "archive",
+        "target": null,
+        "text": "already here",
+        "evidence_ids": []
+      },
+      {
+        "event_id": "e0017",
+        "tick": 1,
+        "kind": "PLAYER_ENTERED",
+        "room": "storage",
+        "actor": "bubbles",
+        "target": null,
+        "text": "already here",
+        "evidence_ids": []
+      },
+      {
+        "event_id": "e0018",
+        "tick": 1,
+        "kind": "PLAYER_ENTERED",
+        "room": "storage",
+        "actor": "echo",
+        "target": null,
+        "text": "already here",
+        "evidence_ids": []
+      },
+      {
+        "event_id": "e0019",
+        "tick": 1,
+        "kind": "PLAYER_ENTERED",
+        "room": "storage",
+        "actor": "maverick",
+        "target": null,
+        "text": "already here",
+        "evidence_ids": []
+      },
+      {
+        "event_id": "e0020",
+        "tick": 2,
+        "kind": "PLAYER_LEFT",
+        "room": "storage",
+        "actor": "archive",
+        "target": "electrical",
+        "text": null,
+        "evidence_ids": []
+      },
+      {
+        "event_id": "e0021",
+        "tick": 2,
+        "kind": "PLAYER_LEFT",
+        "room": "storage",
+        "actor": "bubbles",
+        "target": "electrical",
+        "text": null,
+        "evidence_ids": []
+      },
+      {
+        "event_id": "e0024",
+        "tick": 2,
+        "kind": "PLAYER_LEFT",
+        "room": "storage",
+        "actor": "echo",
+        "target": "electrical",
+        "text": null,
+        "evidence_ids": []
+      },
+      {
+        "event_id": "e0028",
+        "tick": 2,
+        "kind": "PLAYER_LEFT",
+        "room": "storage",
+        "actor": "maverick",
+        "target": "electrical",
+        "text": null,
+        "evidence_ids": []
+      },
+      {
+        "event_id": "e0035",
+        "tick": 2,
+        "kind": "PLAYER_ENTERED",
+        "room": "electrical",
+        "actor": "archive",
+        "target": null,
+        "text": "already here",
+        "evidence_ids": []
+      },
+      {
+        "event_id": "e0036",
+        "tick": 2,
+        "kind": "PLAYER_ENTERED",
+        "room": "electrical",
+        "actor": "bubbles",
+        "target": null,
+        "text": "already here",
+        "evidence_ids": []
+      },
+      {
+        "event_id": "e0037",
+        "tick": 2,
+        "kind": "PLAYER_ENTERED",
+        "room": "electrical",
+        "actor": "echo",
+        "target": null,
+        "text": "already here",
+        "evidence_ids": []
+      },
+      {
+        "event_id": "e0038",
+        "tick": 2,
+        "kind": "PLAYER_ENTERED",
+        "room": "electrical",
+        "actor": "maverick",
+        "target": null,
+        "text": "already here",
+        "evidence_ids": []
+      }
+    ],
+    "legal_actions": [
+      {
+        "action": "MOVE_TO",
+        "target": "cafeteria"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "weapons"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "o2"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "navigation"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "shields"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "communications"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "storage"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "admin"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "lower_engine"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "security"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "reactor"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "upper_engine"
+      },
+      {
+        "action": "MOVE_TO",
+        "target": "medbay"
+      },
+      {
+        "action": "DO_TASK",
+        "target": "calibrate_distributor"
+      },
+      {
+        "action": "WAIT",
+        "target": null
+      }
+    ],
+    "decision_reason": "goal reached"
+  }
+}

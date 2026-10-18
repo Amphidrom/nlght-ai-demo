@@ -2,6 +2,10 @@
 
 ## main (unreleased)
 
+- among-us (experimental): five ego-driven agents play a deterministic Among Us simulation through the new `among_us_agent_turn` workflow (perceive, remember, believe, decide, validate), one Hive Mind session per agent, with ego-dependent encoding and forgetting, evidence-checked actions, replays and leakage/recall/validity metrics. (working/among-us-slice)
+- among-us: define bridge protocol v1 (NDJSON over loopback) with shared fixtures, a `BridgeEnvironment` client and an unbuilt C# BepInEx/Reactor bridge skeleton for the real game. (working/among-us-slice)
+- trigger: split `build_invocation()` out of `build_http_invocation()` so in-process callers can start workflows without an HTTP request. (working/among-us-slice)
+- docs: draft the permission request to Innersloth. (working/among-us-slice)
 - platform: require nlght-ai 0.1.4. (working/nlght-0.1.4)
 - model: move sampling temperature from every `ctx.llm.call()` to provider configuration — `ollama` at `0.1` for the showcase steps, `ollama-extract` at `0` for `knowledge.extract`, whose `temperature` step key is removed. (working/nlght-0.1.4)
 - shipping: execute the quote through `execute_with_origin()` with the caller's context origin, and label the rate table's result as trusted `ToolOutput` content that the evidence record keeps. (working/nlght-0.1.4)

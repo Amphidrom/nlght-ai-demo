@@ -1,0 +1,12 @@
+{
+  "type": "action",
+  "protocol": 1,
+  "agent_id": "sherlock",
+  "action": "MOVE_TO",
+  "target": "admin",
+  "text": null,
+  "goal": "INVESTIGATE",
+  "evidence_ids": [
+    "e0001"
+  ]
+}

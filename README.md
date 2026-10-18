@@ -254,6 +254,25 @@ To hold one run against the one before it:
 uv run nlght-ai knowledge-report -x url=postgresql+asyncpg://knowledge:knowledge@localhost:5434/knowledge
 ```
 
+## Experimental: Among Us agents
+
+`among_us/` is a separate experiment, not one of the seven showcase cases. Five nlght-ai agents
+with distinct egos — Sherlock, Archive, Bubbles, Maverick and Echo — play Among Us against a
+deterministic simulation. Each agent runs in its own Hive Mind session, perceives only what its
+own character could see, remembers it according to its profile (attention, encoding, forgetting),
+derives suspicions from what it can still recall, and lets the model choose among legal actions
+only. A validator refuses illegal actions and claims that cite memories the agent does not have.
+
+```powershell
+psql $env:DATABASE_URL -f demo/seed/08_among_us.sql
+Invoke-RestMethod -Method Post http://localhost:9000/among-us/api/matches `
+  -ContentType application/json -Body '{"seed":7}'
+```
+
+Add `"offline": true` to play without a model or database. The C# bridge for the real game
+(`among_us/bridge`) is an unbuilt skeleton. Architecture, metrics and the bridge protocol are in
+`docs/documentation/among-us.md`.
+
 ## API quickstart
 
 List cases:

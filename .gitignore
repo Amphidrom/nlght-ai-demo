@@ -16,3 +16,7 @@ logs
 AGENTS.md
 CLAUDE.md
 .DS_Store
+.among-us-runs
+docs/legal
+among_us/bridge/bin
+among_us/bridge/obj
