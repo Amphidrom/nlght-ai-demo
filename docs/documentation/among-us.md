@@ -137,6 +137,16 @@ accuracy, unsupported claims. A baseline recalls everything exactly by construct
 the comparison answers is what the ego architecture buys in context size, and how it changes votes
 and claims — which only a run with a real model shows.
 
+## Location claims
+
+A meeting statement can carry structured claims — `{"player": "echo", "room": "admin", "tick": 12}`
+— next to its text. The validator accepts them only with a statement, for known players and past
+ticks, and a claim about someone else only with `evidence_ids` the agent can recall; a claim about
+oneself needs none. Claims stay on the orchestrator side (the bridge protocol is unchanged), and only
+the evaluation compares them with where everyone really was. That is what makes deception
+measurable without parsing free text: an impostor's false claim is a lie, a crewmate's false claim
+is a mistake — usually a memory error the ego is allowed to make.
+
 ## Evaluation
 
 | Metric | Measured as |
@@ -147,7 +157,7 @@ and claims — which only a run with a real model shows.
 | Unsupported claim rate | model claims refused for citing memories the agent cannot recall |
 | By memory mode | ego vs baseline: context size, crew vote accuracy and skip rate, recall, unsupported claims |
 | Ego differentiation | `differentiation_probe`: one identical event stream, pairwise recall distance per ego |
-| Deception consistency | not measured in this slice |
+| Claims | structured location claims (`player`, `room`, `tick`, ±1 tick) against true positions: impostor lies, the share of lies a living witness could refute, self-contradictions and deception consistency; crewmate mistakes per memory mode |
 
 ## Not in this slice
 

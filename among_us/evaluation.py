@@ -38,7 +38,7 @@ def evaluate(record: MatchRecord) -> dict[str, Any]:
         "by_memory_mode": _by_mode(decisions, recall_report, truth.roles if truth else None),
         "action_validity": _validity(decisions),
         "unsupported_claim_rate": _unsupported(decisions),
-        "deception_consistency": "not measured in this slice",
+        "claims": _claims(decisions, truth) if truth is not None and truth.positions else None,
     }
 
 
@@ -140,6 +140,87 @@ def _by_mode(
             "unsupported_claims": _unsupported(items),
         }
     return report
+
+
+_CLAIM_TOLERANCE = 1  # ticks: "I was in admin at 12" holds if true at 11, 12 or 13
+
+
+def _claims(decisions: Sequence[dict[str, Any]], truth: Any) -> dict[str, Any]:
+    """Score structured location claims against where everyone really was.
+
+    A false claim by an impostor is a lie; by a crewmate it is a mistake —
+    typically a memory error, which an ego is allowed to make. A lie is
+    detectable if another living player was, at that tick, in the claimed room
+    (and did not see the subject) or in the room the subject really was in.
+    A speaker contradicts itself by placing the same player at the same tick
+    in two different rooms over the match.
+    """
+
+    positions: dict[int, dict[str, str]] = truth.positions
+    roles: dict[str, str] = truth.roles
+    rows: list[dict[str, Any]] = []
+    said: dict[str, dict[tuple[str, int], set[str]]] = defaultdict(lambda: defaultdict(set))
+    for decision in decisions:
+        speaker = decision["agent_id"]
+        for claim in decision.get("result", {}).get("claims", []):
+            player, room, tick = claim["player"], claim["room"], int(claim["tick"])
+            window = range(tick - _CLAIM_TOLERANCE, tick + _CLAIM_TOLERANCE + 1)
+            actual = {positions[t].get(player) for t in window if t in positions} - {None}
+            true = room in actual
+            detectable = False
+            if not true and tick in positions:
+                real = positions[tick].get(player)
+                detectable = any(
+                    where in (room, real)
+                    for witness, where in positions[tick].items()
+                    if witness not in (speaker, player)
+                )
+            said[speaker][(player, tick)].add(room)
+            rows.append({
+                "speaker": speaker,
+                "role": roles.get(speaker),
+                "memory_mode": decision.get("memory_mode", "ego"),
+                "about_self": player == speaker,
+                "true": true,
+                "detectable": detectable,
+            })
+
+    def summarise(items: list[dict[str, Any]]) -> dict[str, Any]:
+        false = [r for r in items if not r["true"]]
+        return {
+            "claims": len(items),
+            "true": len(items) - len(false),
+            "false": len(false),
+            "false_about_self": sum(1 for r in false if r["about_self"]),
+            "detectable_false": sum(1 for r in false if r["detectable"]),
+        }
+
+    impostor_rows = [r for r in rows if r["role"] == "IMPOSTOR"]
+    crew_rows = [r for r in rows if r["role"] == "CREWMATE"]
+    contradictions = {
+        speaker: sum(1 for rooms in claims.values() if len(rooms) > 1)
+        for speaker, claims in said.items()
+    }
+    impostor_keys = sum(len(said[s]) for s in said if roles.get(s) == "IMPOSTOR")
+    impostor_contradictions = sum(n for s, n in contradictions.items() if roles.get(s) == "IMPOSTOR")
+    lies = summarise(impostor_rows)
+    return {
+        "impostors": {
+            **lies,
+            "lies": lies["false"],
+            "detectable_lie_rate": round(lies["detectable_false"] / lies["false"], 3) if lies["false"] else None,
+            "self_contradictions": impostor_contradictions,
+            "deception_consistency": round(1 - impostor_contradictions / impostor_keys, 3) if impostor_keys else None,
+        },
+        "crew": {
+            **summarise(crew_rows),
+            "by_memory_mode": {
+                mode: summarise([r for r in crew_rows if r["memory_mode"] == mode])
+                for mode in sorted({r["memory_mode"] for r in crew_rows})
+            },
+        },
+        "self_contradictions_by_speaker": {s: n for s, n in sorted(contradictions.items()) if n},
+    }
 
 
 def _validity(decisions: Sequence[dict[str, Any]]) -> dict[str, Any]:

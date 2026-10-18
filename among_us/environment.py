@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from among_us.protocol import (
@@ -36,6 +36,8 @@ class GroundTruth:
 
     roles: dict[str, str]
     events: list[dict[str, Any]]
+    #: tick → player → room. Empty where the environment cannot provide it.
+    positions: dict[int, dict[str, str]] = field(default_factory=dict)
 
 
 class GameEnvironment(Protocol):
@@ -80,6 +82,7 @@ class SimEnvironment:
         return GroundTruth(
             roles={pid: self.engine.role_of(pid).value for pid in self.engine.player_ids},
             events=[event.to_record() for event in self.engine.events],
+            positions={tick: dict(rooms) for tick, rooms in self.engine.positions.items()},
         )
 
     async def close(self) -> None:

@@ -107,6 +107,9 @@ class SimEngine:
         self.phase = Phase.TASKS
         self.winner: MatchEnd | None = None
         self.events: list[GameEvent] = []
+        #: tick → where every living player stood after that tick's moves.
+        #: Ground truth for checking location claims; never observed.
+        self.positions: dict[int, dict[str, str]] = {}
         self._bodies: dict[str, _Body] = {}
         self._statements: dict[str, SemanticAction] = {}
         self._votes: dict[str, str | None] = {}
@@ -114,6 +117,7 @@ class SimEngine:
         for player in self._players.values():
             if player.role is Role.IMPOSTOR:
                 player.kill_cooldown = kill_cooldown
+        self._record_positions()
 
     # -- read side -----------------------------------------------------------
 
@@ -260,11 +264,15 @@ class SimEngine:
                     self._execute(player)
         for player in self._players.values():
             player.kill_cooldown = max(0, player.kill_cooldown - 1)
+        self._record_positions()
         if self.tick >= self._max_ticks and self.phase is Phase.TASKS:
             return self._end("draw", "tick limit reached")
         return self._check_end()
 
     # -- internals -------------------------------------------------------------
+
+    def _record_positions(self) -> None:
+        self.positions[self.tick] = {pid: p.room for pid, p in self._players.items() if p.alive}
 
     def _execute(self, player: _Player) -> None:
         intent = player.intent

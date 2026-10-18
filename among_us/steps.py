@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Sequence
 from typing import Any, ClassVar
 
 from among_us.beliefs import update_beliefs
@@ -67,9 +68,17 @@ Rules you must follow:
 - If you are an impostor, keep your role secret; you may deceive, but stay consistent with what
   others could have seen.
 
+- When you SAY where someone was, also state it in claims: one entry per player, room and tick.
+  A claim about another player needs evidence_ids; a claim about yourself does not.
+
 Answer with one JSON object and nothing else:
 {"action": "<ACTION>", "target": "<target or null>", "text": "<what you say, only for SAY>",
- "goal": "<short goal>", "evidence_ids": ["<event_id>", ...]}"""
+ "goal": "<short goal>", "evidence_ids": ["<event_id>", ...],
+ "claims": [{"player": "<player id>", "room": "<room>", "tick": <tick>}, ...]}"""
+MAX_CLAIMS = 5
+#: Room names differ between the simulation and the real game, so a claim's
+#: room is checked for form only; the evaluation decides whether it is true.
+_ROOM_NAME = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 
 
 def _state(ctx: WorkflowStepContext) -> dict[str, Any]:
@@ -311,13 +320,16 @@ class AmongUsValidateStep(StepBase):
         recalled_ids = {m["event_id"] for m in state.get("recalled", [])}
         beliefs = state.get("beliefs", {})
         proposal = state.get("proposal")
-        action, validation = validate_proposal(proposal, observation, recalled_ids, ego)
+        action, validation = validate_proposal(proposal, observation, recalled_ids, ego, players=state["players"])
         if action is None:
             action = fallback_action(observation, beliefs, recalled_ids)
         result = {
             "action": to_dict(action),
             "decided_by": state.get("decided_by", "policy") if validation["status"] == "accepted" else "policy",
             "validation": validation,
+            # Structured location claims of an accepted statement. Only the
+            # evaluation compares them with the truth.
+            "claims": validation.get("claims", []) if validation["status"] == "accepted" else [],
             "memory": state.get("memory", {}),
             "context": state.get("context"),
             # What the agent believes it remembers — kept for evaluation, which
@@ -351,8 +363,15 @@ def validate_proposal(
     observation: Observation,
     recalled_ids: set[str],
     ego: EgoProfile,
+    *,
+    players: Sequence[str] = (),
 ) -> tuple[SemanticAction | None, dict[str, Any]]:
-    """Accept a proposal only if it is legal and cites only recallable memories."""
+    """Accept a proposal only if it is legal and cites only recallable memories.
+
+    Location claims are accepted only with a statement, must name a known
+    player, a room and a past tick, and a claim about someone else needs
+    evidence — the agent must be able to say why it believes it.
+    """
 
     if proposal is None:
         return None, {"status": "no_proposal"}
@@ -381,7 +400,35 @@ def validate_proposal(
                                     action.goal, action.evidence_ids)
     if observation.phase is not Phase.MEETING and action.action is ActionKind.SAY:
         return None, {"status": "illegal", "reason": "SAY outside a meeting"}
-    return action, {"status": "accepted"}
+    claims, problem = _claims(proposal.get("claims"), action, observation, players)
+    if problem:
+        return None, problem
+    return action, {"status": "accepted", "claims": claims}
+
+
+def _claims(
+    raw: Any, action: SemanticAction, observation: Observation, players: Sequence[str],
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    if raw in (None, []):
+        return [], None
+    if action.action is not ActionKind.SAY:
+        return [], {"status": "malformed", "reason": "claims belong to a statement"}
+    if not isinstance(raw, list) or len(raw) > MAX_CLAIMS:
+        return [], {"status": "malformed", "reason": f"claims must be a list of at most {MAX_CLAIMS}"}
+    known = set(players) | {observation.agent_id}
+    claims = []
+    for item in raw:
+        if not isinstance(item, dict) or set(item) != {"player", "room", "tick"}:
+            return [], {"status": "malformed", "reason": "a claim has exactly player, room and tick"}
+        player, room, tick = item["player"], item["room"], item["tick"]
+        valid_room = isinstance(room, str) and bool(_ROOM_NAME.match(room))
+        valid_tick = isinstance(tick, int) and not isinstance(tick, bool) and 0 <= tick <= observation.tick
+        if player not in known or not valid_room or not valid_tick:
+            return [], {"status": "malformed", "reason": f"invalid claim {item}"}
+        if player != observation.agent_id and not action.evidence_ids:
+            return [], {"status": "unsupported", "reason": f"claim about {player} without evidence"}
+        claims.append({"player": player, "room": room, "tick": tick})
+    return claims, None
 
 
 STEPS = (

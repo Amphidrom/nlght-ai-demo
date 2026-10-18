@@ -216,7 +216,7 @@ class MatchRecord:
             "winner": self.winner,
             "error": self.error,
             "decisions": sum(1 for e in self.entries if e["type"] == "decision"),
-            "scheduling": dict(Counter(e["scheduling"] for e in self.entries if e["type"] == "decision")),
+            "scheduling": dict(Counter(e.get("scheduling", "unknown") for e in self.entries if e["type"] == "decision")),
         }
 
 
