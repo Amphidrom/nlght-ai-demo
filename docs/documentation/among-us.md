@@ -131,6 +131,10 @@ A bridge match starts after the agents have joined the lobby:
 {"environment": "bridge"}
 ```
 
+Everything in *Playing the impostor* works on the server too: lights and comms sabotage (in the
+real game lights out shrink a crewmate's sight rather than hiding names), doors, and the Shapeshifter
+and Phantom roles, with perception following appearance there as well.
+
 There is no spectator ground truth for the real game yet, so leakage, recall and claims cannot be
 scored against the truth there.
 

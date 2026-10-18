@@ -2,22 +2,25 @@
   "type": "decision_request",
   "protocol": 1,
   "observation": {
-    "agent_id": "bolt",
+    "agent_id": "cleo",
     "tick": 1,
     "phase": "TASKS",
     "self_state": {
-      "player_id": "bolt",
+      "player_id": "cleo",
       "room": "cafeteria",
       "role": "CREWMATE",
       "alive": true,
       "tasks_remaining": [
         "fix_wiring#0",
-        "align_engine_output#1",
-        "divert_power#2",
-        "divert_power#3"
+        "submit_scan#1",
+        "upload_data#2",
+        "upload_data#3"
       ],
       "kill_ready": false,
-      "known_impostors": []
+      "known_impostors": [],
+      "special_role": null,
+      "disguised_as": null,
+      "vanished": false
     },
     "visible_players": [
       {
@@ -31,7 +34,7 @@
         "alive": true
       },
       {
-        "player_id": "cleo",
+        "player_id": "bolt",
         "room": "cafeteria",
         "alive": true
       },
@@ -44,7 +47,7 @@
     "visible_bodies": [],
     "events": [
       {
-        "event_id": "bolt-00001",
+        "event_id": "cleo-00001",
         "tick": 1,
         "kind": "PLAYER_ENTERED",
         "room": "cafeteria",
@@ -53,7 +56,7 @@
         "text": null
       },
       {
-        "event_id": "bolt-00002",
+        "event_id": "cleo-00002",
         "tick": 1,
         "kind": "PLAYER_ENTERED",
         "room": "cafeteria",
@@ -62,16 +65,16 @@
         "text": null
       },
       {
-        "event_id": "bolt-00003",
+        "event_id": "cleo-00003",
         "tick": 1,
         "kind": "PLAYER_ENTERED",
         "room": "cafeteria",
-        "actor": "cleo",
+        "actor": "bolt",
         "target": null,
         "text": null
       },
       {
-        "event_id": "bolt-00004",
+        "event_id": "cleo-00004",
         "tick": 1,
         "kind": "PLAYER_ENTERED",
         "room": "cafeteria",
@@ -139,15 +142,15 @@
       },
       {
         "action": "DO_TASK",
-        "target": "align_engine_output#1"
+        "target": "submit_scan#1"
       },
       {
         "action": "DO_TASK",
-        "target": "divert_power#2"
+        "target": "upload_data#2"
       },
       {
         "action": "DO_TASK",
-        "target": "divert_power#3"
+        "target": "upload_data#3"
       },
       {
         "action": "CALL_MEETING",
@@ -166,6 +169,7 @@
       "dax",
       "host"
     ],
-    "alarm": null
+    "alarm": null,
+    "outages": []
   }
 }
