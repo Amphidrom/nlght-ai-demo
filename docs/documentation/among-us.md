@@ -22,6 +22,26 @@ point** — goal reached, a salient observation (kill, body, meeting), a kill op
 change, a meeting turn or a vote. In between, the game executes the last semantic action
 (walking takes one corridor per tick, a task three ticks).
 
+## Scheduling
+
+The environment decides *which* agents are at a decision point; `among_us/scheduler.py` decides
+*how* each one decides:
+
+| Rule | Setting (default) | Effect |
+|---|---|---|
+| Priority | — | meetings and votes, then salient observations (kill, body), then kill opportunities, then routine goals |
+| Concurrency | `max_concurrent_model_turns` (4) | model turns running at once; the rest queue in priority order |
+| Budget | `model_turns_per_tick` (8) | model turns per task-phase tick; agents beyond it decide by policy this tick. Meetings and votes are exempt |
+| Deadline | `turn_timeout_seconds` (90) | a slower model turn is replaced by a policy turn |
+
+A policy turn runs the same workflow with the model off: the agent still perceives, remembers and
+believes. Every decision records its `scheduling` mode (`model`, `policy:budget`, `policy:timeout`,
+`policy:offline`), and the match summary counts them. Settings go into the match request:
+
+```json
+{"seed": 7, "scheduler": {"max_concurrent_model_turns": 2, "model_turns_per_tick": 4}}
+```
+
 ## The agent turn
 
 | Step | What it does | Where state lives |
@@ -112,5 +132,4 @@ Then follow `GET /among-us/api/matches/{id}/events` (server-sent events) and, on
 
 ## Not in this slice
 
-Dashboard and memory timeline, a chat-history baseline, an Impostor server plugin, an LLM call
-scheduler (a full lobby can start up to fifteen model calls at once), and any use of Among Us artwork.
+Dashboard and memory timeline, a chat-history baseline, an Impostor server plugin, and any use of Among Us artwork.

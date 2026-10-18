@@ -18,6 +18,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import ValidationError
 
 from among_us.ego import ego_ids, load_ego
 from among_us.environment import BridgeEnvironment, GameEnvironment, SimEnvironment
@@ -30,6 +31,7 @@ from among_us.match import (
     WorkflowAgentRunner,
     run_match,
 )
+from among_us.scheduler import DecisionScheduler, SchedulerConfig
 from among_us.sim.engine import MAX_PLAYERS, MIN_PLAYERS, max_impostors
 
 logger = logging.getLogger(__name__)
@@ -66,7 +68,8 @@ class AmongUsAdapter:
             runner = PipelineAgentRunner() if options["offline"] else WorkflowAgentRunner(
                 container, model=_default_model(container),
             )
-            task = asyncio.create_task(self._run(environment, runner, record, options["offline"]))
+            scheduler = DecisionScheduler(options["scheduler"], model_enabled=not options["offline"])
+            task = asyncio.create_task(self._run(environment, runner, scheduler, record))
             self._tasks.add(task)
             task.add_done_callback(self._tasks.discard)
             return JSONResponse(record.summary(), status_code=202)
@@ -89,8 +92,8 @@ class AmongUsAdapter:
 
         return router
 
-    async def _run(self, environment: GameEnvironment, runner: Any, record: MatchRecord, offline: bool) -> None:
-        await run_match(environment, runner, record, offline=offline)
+    async def _run(self, environment: GameEnvironment, runner: Any, scheduler: DecisionScheduler, record: MatchRecord) -> None:
+        await run_match(environment, runner, record, scheduler=scheduler)
         path = self._replays.write(record)
         logger.info("among_us.match.%s | match=%s | replay=%s", record.status, record.match_id, path)
 
@@ -156,7 +159,12 @@ def _match_options(body: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(422, f"{len(assignment)} players allow 1 to {max_impostors(len(assignment))} impostors.")
     if not 47100 <= port <= 47199:
         raise HTTPException(422, "bridge_port must be within 47100-47199.")
+    try:
+        scheduler = SchedulerConfig.model_validate(body.get("scheduler") or {})
+    except ValidationError as exc:
+        raise HTTPException(422, f"Invalid scheduler settings: {exc.errors(include_url=False)}") from exc
     return {
+        "scheduler": scheduler,
         "environment": environment,
         "assignment": assignment,
         "seed": seed,

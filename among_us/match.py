@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import uuid
+from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -31,6 +32,7 @@ from among_us.protocol import (
     action_from_dict,
     to_dict,
 )
+from among_us.scheduler import DecisionScheduler
 from among_us.steps import STEPS
 from nlght.adapters.outbound.signals.buffering import BufferingSignalEmitter
 from nlght.core.entry.context import RequestContext
@@ -200,6 +202,7 @@ class MatchRecord:
             "winner": self.winner,
             "error": self.error,
             "decisions": sum(1 for e in self.entries if e["type"] == "decision"),
+            "scheduling": dict(Counter(e["scheduling"] for e in self.entries if e["type"] == "decision")),
         }
 
 
@@ -227,8 +230,10 @@ async def run_match(
     record: MatchRecord,
     *,
     offline: bool = False,
+    scheduler: DecisionScheduler | None = None,
     max_iterations: int = 5000,
 ) -> MatchRecord:
+    scheduler = scheduler or DecisionScheduler(model_enabled=not offline)
     record.set_status("running")
     try:
         hello = await environment.connect()
@@ -242,7 +247,7 @@ async def run_match(
                 batch = await environment.next_decisions()
                 if not batch:
                     break
-                await _decide_batch(environment, runner, record, batch, players, hello.source, offline)
+                await _decide_batch(environment, runner, scheduler, record, batch, players, hello.source)
             end = await environment.advance()
             if end is not None:
                 record.set_status("finished", winner=to_dict(end))
@@ -261,13 +266,13 @@ async def run_match(
 async def _decide_batch(
     environment: GameEnvironment,
     runner: AgentRunner,
+    scheduler: DecisionScheduler,
     record: MatchRecord,
     batch: Sequence[Observation],
     players: list[str],
     source: str,
-    offline: bool,
 ) -> None:
-    async def turn(observation: Observation) -> dict[str, Any]:
+    async def turn(observation: Observation, use_model: bool) -> dict[str, Any]:
         payload = {
             "match_id": record.match_id,
             "match_seed": record.seed,
@@ -275,7 +280,7 @@ async def _decide_batch(
             "ego": record.egos[observation.agent_id],
             "players": players,
             "source": source,
-            "offline": offline,
+            "offline": not use_model,
             "observation": to_dict(observation),
         }
         return await runner.decide(
@@ -284,10 +289,10 @@ async def _decide_batch(
             payload=payload,
         )
 
-    # Independent agents think in parallel; the game applies their actions
-    # in seat order so the outcome does not depend on model latency.
-    results = await asyncio.gather(*(turn(obs) for obs in batch))
-    for observation, result in sorted(zip(batch, results, strict=True), key=lambda pair: pair[0].agent_id):
+    # Agents think in parallel within the scheduler's limits; the game applies
+    # their actions in seat order so the outcome does not depend on latency.
+    decided = await scheduler.run(batch, turn)
+    for observation, result, mode in sorted(decided, key=lambda item: item[0].agent_id):
         idle = SemanticAction(
             observation.agent_id,
             ActionKind.SKIP_VOTE if observation.phase is Phase.VOTING else ActionKind.WAIT,
@@ -310,6 +315,7 @@ async def _decide_batch(
             "tick": observation.tick,
             "phase": observation.phase.value,
             "reason": observation.decision_reason,
+            "scheduling": mode,
             "perceived": [e.event_id for e in observation.events],
             "result": result,
             "action": to_dict(action),

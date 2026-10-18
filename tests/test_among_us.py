@@ -35,6 +35,7 @@ from among_us.protocol import (
     encode,
     to_dict,
 )
+from among_us.scheduler import DecisionScheduler, SchedulerConfig
 from among_us.sim.engine import MAX_PLAYERS, SimEngine, max_impostors
 from among_us.steps import validate_proposal
 from fastapi import HTTPException
@@ -447,3 +448,92 @@ class AdapterOptionTests(unittest.TestCase):
 
     def test_action_payload_is_plain_json(self) -> None:
         self.assertEqual("MOVE_TO", to_dict(SemanticAction("a", ActionKind.MOVE_TO, "admin"))["action"])
+
+
+def task_observation(agent_id: str, reason: str = "goal reached", tick: int = 3, phase: Phase = Phase.TASKS) -> Observation:
+    return Observation(
+        agent_id=agent_id, tick=tick, phase=phase,
+        self_state=SelfState(agent_id, "admin", Role.CREWMATE),
+        legal_actions=(LegalAction(ActionKind.WAIT),), decision_reason=reason,
+    )
+
+
+class SchedulerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_meetings_and_salient_observations_go_first(self) -> None:
+        batch = [
+            task_observation("a"),
+            task_observation("b", "opportunity"),
+            task_observation("c", "observed: KILL_WITNESSED"),
+            task_observation("d", phase=Phase.MEETING),
+        ]
+        order = [obs.agent_id for obs, _ in DecisionScheduler().plan(batch)]
+        self.assertEqual(["d", "c", "b", "a"], order)
+
+    async def test_budget_limits_model_turns_per_tick_but_not_meetings(self) -> None:
+        scheduler = DecisionScheduler(SchedulerConfig(model_turns_per_tick=2))
+        batch = [task_observation(f"p{i}") for i in range(5)] + [task_observation("m", phase=Phase.MEETING)]
+        modes = dict((obs.agent_id, mode) for obs, mode in scheduler.plan(batch))
+        self.assertEqual("model", modes["m"])
+        self.assertEqual(2, sum(1 for agent, mode in modes.items() if agent != "m" and mode == "model"))
+        self.assertEqual(3, sum(1 for mode in modes.values() if mode == "policy:budget"))
+        # The budget is per tick: the next tick starts fresh.
+        later = scheduler.plan([task_observation("p0", tick=4)])
+        self.assertEqual("model", later[0][1])
+
+    async def test_concurrency_is_capped(self) -> None:
+        scheduler = DecisionScheduler(SchedulerConfig(max_concurrent_model_turns=3, model_turns_per_tick=15))
+        running = peak = 0
+
+        async def turn(observation: Observation, use_model: bool) -> dict:
+            nonlocal running, peak
+            running += 1
+            peak = max(peak, running)
+            await asyncio.sleep(0.01)
+            running -= 1
+            return {"use_model": use_model}
+
+        results = await scheduler.run([task_observation(f"p{i}") for i in range(15)], turn)
+        self.assertEqual(3, peak)
+        self.assertTrue(all(result["use_model"] for _, result, _ in results))
+
+    async def test_a_slow_model_turn_is_replaced_by_the_policy(self) -> None:
+        scheduler = DecisionScheduler(SchedulerConfig(turn_timeout_seconds=0.05))
+
+        async def turn(observation: Observation, use_model: bool) -> dict:
+            if use_model:
+                await asyncio.sleep(1)
+            return {"use_model": use_model}
+
+        [(_, result, mode)] = await scheduler.run([task_observation("slow")], turn)
+        self.assertEqual("policy:timeout", mode)
+        self.assertFalse(result["use_model"])
+
+    async def test_offline_matches_never_use_the_model(self) -> None:
+        plan = DecisionScheduler(model_enabled=False).plan([task_observation("a", phase=Phase.VOTING)])
+        self.assertEqual("policy:offline", plan[0][1])
+
+
+class ScheduledMatchTests(unittest.TestCase):
+    def test_a_full_lobby_stays_within_the_model_budget(self) -> None:
+        egos = list(ego_ids())
+        llm = fake_llm(first_legal_answer)
+        environment = SimEnvironment(egos, seed=8, impostors=2)
+        record = MatchRecord("budget", 8, {e: e for e in egos}, "sim")
+        scheduler = DecisionScheduler(SchedulerConfig(max_concurrent_model_turns=2, model_turns_per_tick=3))
+        asyncio.run(run_match(environment, PipelineAgentRunner(llm), record, scheduler=scheduler))
+        self.assertEqual("finished", record.status, record.error)
+        decisions = [e for e in record.entries if e["type"] == "decision"]
+        per_tick: dict[int, int] = {}
+        for d in decisions:
+            if d["scheduling"] == "model" and d["phase"] == "TASKS":
+                per_tick[d["tick"]] = per_tick.get(d["tick"], 0) + 1
+        self.assertLessEqual(max(per_tick.values()), 3)
+        self.assertIn("policy:budget", record.summary()["scheduling"])
+        self.assertTrue(all(d["accepted"] for d in decisions))
+
+    def test_invalid_scheduler_settings_are_refused(self) -> None:
+        with self.assertRaises(HTTPException):
+            _match_options({"scheduler": {"max_concurrent_model_turns": 0}})
+        with self.assertRaises(HTTPException):
+            _match_options({"scheduler": {"parallel": 99}})
+        self.assertEqual(4, _match_options({})["scheduler"].max_concurrent_model_turns)
