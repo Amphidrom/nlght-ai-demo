@@ -33,7 +33,7 @@ from among_us.protocol import (
     to_dict,
 )
 from among_us.scheduler import DecisionScheduler
-from among_us.steps import STEPS
+from among_us.steps import BASELINE_STEPS, STEPS
 from nlght.adapters.outbound.signals.buffering import BufferingSignalEmitter
 from nlght.core.entry.context import RequestContext
 from nlght.core.hive_mind.models import TurnSummary
@@ -45,6 +45,8 @@ from trigger.invocation import build_invocation
 logger = logging.getLogger(__name__)
 
 WORKFLOW = "among_us_agent_turn"
+BASELINE_WORKFLOW = "among_us_agent_turn_baseline"
+MEMORY_MODES = {"ego": WORKFLOW, "baseline": BASELINE_WORKFLOW}
 
 
 def session_key(match_id: str, agent_id: str) -> str:
@@ -65,7 +67,9 @@ def _context(correlation_id: str) -> RequestContext:
 
 
 class AgentRunner(Protocol):
-    async def decide(self, *, agent_id: str, session_key: str, payload: dict[str, Any]) -> dict[str, Any]: ...
+    async def decide(
+        self, *, agent_id: str, session_key: str, payload: dict[str, Any], mode: str = "ego",
+    ) -> dict[str, Any]: ...
 
 
 class WorkflowAgentRunner:
@@ -75,11 +79,13 @@ class WorkflowAgentRunner:
         self._container = container
         self._model = model
 
-    async def decide(self, *, agent_id: str, session_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    async def decide(
+        self, *, agent_id: str, session_key: str, payload: dict[str, Any], mode: str = "ego",
+    ) -> dict[str, Any]:
         cid = str(uuid.uuid4())
         body = {**payload, **({"model": self._model} if self._model else {})}
         invocation = await build_invocation(
-            self._container, workflow_name=WORKFLOW, payload=body,
+            self._container, workflow_name=MEMORY_MODES[mode], payload=body,
             context=_context(cid), session_key=session_key, stream=False,
         )
         executor = self._container.workflow_executor
@@ -125,7 +131,9 @@ class PipelineAgentRunner:
         self._config = config or {}
         self.sessions: dict[str, InMemorySession] = {}
 
-    async def decide(self, *, agent_id: str, session_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    async def decide(
+        self, *, agent_id: str, session_key: str, payload: dict[str, Any], mode: str = "ego",
+    ) -> dict[str, Any]:
         cid = str(uuid.uuid4())
         emitter = BufferingSignalEmitter()
         ctx = WorkflowStepContext(
@@ -141,7 +149,7 @@ class PipelineAgentRunner:
             llm=self._llm,
             store_coordinator=self.sessions.setdefault(session_key, InMemorySession()),  # type: ignore[arg-type]
         )
-        for step_cls in STEPS:
+        for step_cls in STEPS if mode == "ego" else BASELINE_STEPS:
             result = await step_cls(config=self._config.get(step_cls.TYPE, {})).run(ctx)
             ctx = result.ctx
             if result.verdict in ("done", "failed"):
@@ -164,6 +172,8 @@ class MatchRecord:
     seed: int
     egos: dict[str, str]
     environment: str
+    #: player → memory architecture ("ego" or "baseline"); missing means ego.
+    modes: dict[str, str] = field(default_factory=dict)
     status: str = "pending"
     winner: dict[str, Any] | None = None
     error: str | None = None
@@ -192,12 +202,16 @@ class MatchRecord:
         except TimeoutError:
             pass
 
+    def mode_of(self, player: str) -> str:
+        return self.modes.get(player, "ego")
+
     def summary(self) -> dict[str, Any]:
         return {
             "match_id": self.match_id,
             "seed": self.seed,
             "egos": self.egos,
             "environment": self.environment,
+            "modes": {player: self.mode_of(player) for player in self.egos},
             "status": self.status,
             "winner": self.winner,
             "error": self.error,
@@ -287,6 +301,7 @@ async def _decide_batch(
             agent_id=observation.agent_id,
             session_key=session_key(record.match_id, observation.agent_id),
             payload=payload,
+            mode=record.mode_of(observation.agent_id),
         )
 
     # Agents think in parallel within the scheduler's limits; the game applies
@@ -312,6 +327,7 @@ async def _decide_batch(
             "type": "decision",
             "agent_id": observation.agent_id,
             "ego": record.egos[observation.agent_id],
+            "memory_mode": record.mode_of(observation.agent_id),
             "tick": observation.tick,
             "phase": observation.phase.value,
             "reason": observation.decision_reason,

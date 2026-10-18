@@ -55,6 +55,9 @@ class _Player:
     seen_bodies: set[str] = field(default_factory=set)
     phase_seen: Phase | None = None
     task_progress: int = 0
+    #: Kill targets present at the last observation. A kill opportunity is a
+    #: decision point only when this changes, not on every tick it persists.
+    kill_targets_seen: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -137,11 +140,13 @@ class SimEngine:
             return True
         if any(event.kind in _SALIENT for event in player.pending):
             return True
+        targets = frozenset(self._kill_targets(pid))
         return (
             player.role is Role.IMPOSTOR
             and player.kill_cooldown == 0
             and player.intent.action is not ActionKind.KILL
-            and bool(self._kill_targets(pid))
+            and bool(targets)
+            and targets != player.kill_targets_seen
         )
 
     def observe(self, pid: str) -> Observation:
@@ -149,6 +154,7 @@ class SimEngine:
         events, player.pending = tuple(player.pending), []
         reason = self._decision_reason(player, events)
         player.phase_seen = self.phase
+        player.kill_targets_seen = frozenset(self._kill_targets(pid)) if player.kill_cooldown == 0 else frozenset()
         in_meeting = self.phase in (Phase.MEETING, Phase.VOTING)
         visible = tuple(
             VisiblePlayer(other.player_id, other.room, other.alive)

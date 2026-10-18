@@ -409,17 +409,25 @@ class WorkflowSeedTests(unittest.TestCase):
         from nlght.adapters.outbound.workflow.registry import step_registry
 
         seeded = set(re.findall(r"'(among_us_[a-z]+)',\n", self._seed()))
-        self.assertEqual(5, len(seeded))
+        self.assertEqual(6, len(seeded))
         self.assertEqual(set(), seeded - set(getattr(step_registry, "_registry")))
 
-    def test_only_the_decide_step_selects_a_model(self) -> None:
+    def test_only_the_decide_steps_select_a_model(self) -> None:
         seed = self._seed()
-        self.assertEqual(1, seed.count('"model_provider":"ollama"'))
-        self.assertIn("'decide', 'among_us_decide'", seed)
+        self.assertEqual(2, seed.count('"model_provider":"ollama"'))
+        self.assertEqual(2, seed.count("'decide', 'among_us_decide'"))
+
+    def test_baseline_differs_from_the_ego_workflow_only_in_memory(self) -> None:
+        seed = self._seed()
+        ego, baseline = seed.split("among_us_agent_turn_baseline", 1)
+        ego_steps = re.findall(r"'(among_us_[a-z]+)',\n", ego)
+        baseline_steps = re.findall(r"'(among_us_[a-z]+)',\n", baseline)
+        self.assertEqual(["among_us_perceive", "among_us_remember", "among_us_believe", "among_us_decide", "among_us_validate"], ego_steps)
+        self.assertEqual(["among_us_perceive", "among_us_transcript", "among_us_decide", "among_us_validate"], baseline_steps)
 
     def test_transitions_point_at_steps_of_this_workflow(self) -> None:
         seed = self._seed()
-        defined = set(re.findall(r"\('(a8100000-0000-0000-0000-0000000000\d\d)', 'a8100000-0000-0000-0000-000000000002'", seed))
+        defined = set(re.findall(r"\('(a8100000-0000-0000-0000-0000000000\d\d)', 'a8100000-0000-0000-0000-0000000000(?:02|22)'", seed))
         targets = set(re.findall(r'":"(a8100000-[0-9a-f-]+)"', seed))
         self.assertTrue(targets)
         self.assertEqual(set(), targets - defined)
@@ -537,3 +545,59 @@ class ScheduledMatchTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             _match_options({"scheduler": {"parallel": 99}})
         self.assertEqual(4, _match_options({})["scheduler"].max_concurrent_model_turns)
+
+
+class BaselineTests(unittest.TestCase):
+    def _mixed(self, seed: int, llm=None) -> MatchRecord:
+        egos = ["archive", "bubbles", "echo", "maverick", "sherlock", "gossip"]
+        modes = {e: "baseline" if e in ("archive", "echo", "gossip") else "ego" for e in egos}
+        environment = SimEnvironment(egos, seed=seed)
+        record = MatchRecord(f"mix{seed}", seed, {e: e for e in egos}, "sim", modes=modes)
+        asyncio.run(run_match(environment, PipelineAgentRunner(llm), record, offline=llm is None))
+        return record
+
+    def test_mixed_lobby_reports_both_memory_architectures(self) -> None:
+        record = self._mixed(5)
+        self.assertEqual("finished", record.status, record.error)
+        report = evaluate(record)
+        self.assertEqual({"ego", "baseline"}, set(report["by_memory_mode"]))
+        self.assertEqual(0, report["memory_leakage"]["violations"])
+        baseline = report["by_memory_mode"]["baseline"]
+        self.assertEqual(["archive", "echo", "gossip"], baseline["agents"])
+        # A verbatim transcript remembers every detail it saw, exactly.
+        self.assertEqual(1.0, baseline["detail_accuracy_mean"])
+        self.assertGreaterEqual(baseline["recall_coverage_mean"], report["by_memory_mode"]["ego"]["recall_coverage_mean"])
+
+    def test_context_size_is_measured_per_model_turn(self) -> None:
+        report = evaluate(self._mixed(6, fake_llm(first_legal_answer)))["by_memory_mode"]
+        for mode in ("ego", "baseline"):
+            self.assertGreater(report[mode]["model_turns"], 0)
+            self.assertGreater(report[mode]["context_chars_mean"], 0)
+
+    def test_transcript_never_forgets_and_is_bounded(self) -> None:
+        from among_us.steps import TRANSCRIPT_LIMIT
+        record = self._mixed(5)
+        last = [e for e in record.entries if e["type"] == "decision" and e["agent_id"] == "gossip"][-1]
+        self.assertEqual([], last["result"]["memory"]["forgotten"])
+        self.assertLessEqual(last["result"]["memory"]["stored"], TRANSCRIPT_LIMIT)
+
+    def test_baseline_players_must_be_in_the_match(self) -> None:
+        with self.assertRaises(HTTPException):
+            _match_options({"egos": ["sherlock", "archive", "bubbles", "echo"], "baseline": ["nova"]})
+        options = _match_options({"egos": ["sherlock", "archive", "bubbles", "echo"], "baseline": ["echo"]})
+        self.assertEqual("baseline", options["modes"]["echo"])
+        self.assertEqual("ego", options["modes"]["sherlock"])
+
+
+class OpportunityTests(unittest.TestCase):
+    def test_a_declined_kill_opportunity_does_not_repeat_within_the_situation(self) -> None:
+        engine = SimEngine(["a", "b", "c", "d"], seed=1, kill_cooldown=0)
+        impostor = next(pid for pid in engine.player_ids if engine.role_of(pid) is Role.IMPOSTOR)
+        for pid in engine.player_ids:
+            engine._players[pid].room = "electrical"
+        engine.observe(impostor)
+        engine.submit(SemanticAction(impostor, ActionKind.WAIT))
+        engine.advance()
+        engine.observe(impostor)
+        engine.submit(SemanticAction(impostor, ActionKind.MOVE_TO, "reactor"))
+        self.assertFalse(engine.needs_decision(impostor), "same targets, already declined")

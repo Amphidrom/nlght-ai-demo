@@ -119,6 +119,24 @@ Invoke-RestMethod -Method Post http://localhost:9000/among-us/api/matches `
 Then follow `GET /among-us/api/matches/{id}/events` (server-sent events) and, once finished,
 `GET /among-us/api/matches/{id}/evaluation`. Replays are written to `.among-us-runs/`.
 
+## Baseline: plain chat history
+
+`among_us_agent_turn_baseline` is the same turn with one difference: `among_us_transcript` keeps
+everything the agent perceived verbatim and never forgets (bounded at 300 events, as a real chat
+history is bounded by the context window), and there are no beliefs. Perception, persona, rules,
+validator, model provider and scheduling are identical, so a comparison isolates the memory
+architecture. Ego and baseline agents can sit in the same match:
+
+```json
+{"seed": 7, "baseline": ["archive", "echo", "gossip"]}
+```
+
+The evaluation reports both groups side by side under `by_memory_mode`: decisions, model turns,
+context size per model turn, crewmate vote accuracy and skip rate, recall coverage and detail
+accuracy, unsupported claims. A baseline recalls everything exactly by construction; the question
+the comparison answers is what the ego architecture buys in context size, and how it changes votes
+and claims — which only a run with a real model shows.
+
 ## Evaluation
 
 | Metric | Measured as |
@@ -127,9 +145,10 @@ Then follow `GET /among-us/api/matches/{id}/events` (server-sent events) and, on
 | Recall | per agent: share of its perceived events it ever recalled, and detail accuracy against its own view |
 | Action validity | actions the game accepted; model proposals the validator accepted, by status |
 | Unsupported claim rate | model claims refused for citing memories the agent cannot recall |
+| By memory mode | ego vs baseline: context size, crew vote accuracy and skip rate, recall, unsupported claims |
 | Ego differentiation | `differentiation_probe`: one identical event stream, pairwise recall distance per ego |
 | Deception consistency | not measured in this slice |
 
 ## Not in this slice
 
-Dashboard and memory timeline, a chat-history baseline, an Impostor server plugin, and any use of Among Us artwork.
+Dashboard and memory timeline, an Impostor server plugin, and any use of Among Us artwork.

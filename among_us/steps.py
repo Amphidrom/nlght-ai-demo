@@ -47,6 +47,10 @@ logger = logging.getLogger(__name__)
 
 MEMORY_SLOT = "among_us:episodic"
 BELIEF_SLOT = "among_us:beliefs"
+TRANSCRIPT_SLOT = "among_us:transcript"
+#: The baseline keeps a verbatim log; a real chat history is bounded by the
+#: model's context window, so is this one.
+TRANSCRIPT_LIMIT = 300
 _STATE = "among_us"
 
 _RULES = """You are one player in a game of Among Us. Decide your next action.
@@ -148,6 +152,53 @@ class AmongUsRememberStep(StepBase):
         return StepResult(ctx=ctx, verdict="remembered")
 
 
+class AmongUsTranscriptStep(StepBase):
+    """Baseline memory: everything perceived, verbatim, never forgotten, no beliefs.
+
+    It replaces remember and believe in ``among_us_agent_turn_baseline``. The
+    agent still perceives only its own observations, so the comparison with
+    the ego workflow isolates the memory architecture and nothing else.
+    """
+
+    TYPE: ClassVar[str] = "among_us_transcript"
+
+    async def run(self, ctx: WorkflowStepContext) -> StepResult:
+        store = ctx.store_coordinator
+        if store is None:
+            return StepResult(ctx=ctx, verdict="failed")
+        state = _state(ctx)
+        observation = observation_from_dict(state["observation"])
+        transcript = list(store.get_slot(TRANSCRIPT_SLOT, list))
+        known = {entry["event_id"] for entry in transcript}
+        added = []
+        for event in observation.events:
+            if event.event_id in known:
+                continue
+            details = {k: v for k, v in (("room", event.room), ("actor", event.actor),
+                                         ("target", event.target), ("text", event.text)) if v}
+            if event.evidence_ids and event.text:
+                details["cited"] = list(event.evidence_ids)
+            transcript.append({"event_id": event.event_id, "tick": event.tick, "kind": event.kind.value,
+                               "details": details, "encoding_quality": 1.0})
+            added.append(event.event_id)
+        transcript = transcript[-TRANSCRIPT_LIMIT:]
+        store.set_slot(TRANSCRIPT_SLOT, transcript)
+        recalled = [{**entry, "certainty": 1.0} for entry in reversed(transcript)]
+        _set_state(
+            ctx,
+            recalled=recalled,
+            beliefs={},
+            memory={
+                "encoded": added,
+                "ignored": [],
+                "forgotten": [],
+                "stored": len(transcript),
+                "recalled": [m["event_id"] for m in recalled],
+            },
+        )
+        return StepResult(ctx=ctx, verdict="remembered")
+
+
 class AmongUsBelieveStep(StepBase):
     TYPE: ClassVar[str] = "among_us_believe"
 
@@ -180,6 +231,7 @@ class AmongUsDecideStep(StepBase):
         ego = load_ego(state["ego"])
         instructions = f"{ego.persona}\n\n{_RULES}\n\nKeep anything you say under {ego.voice.max_words} words."
         records = self._context(state, observation)
+        context_size = {"records": len(records), "chars": sum(len(r.content) for r in records)}
         request = UserMessage(json.dumps({
             "tick": observation.tick,
             "phase": observation.phase.value,
@@ -194,7 +246,7 @@ class AmongUsDecideStep(StepBase):
             )
         raw = await call_llm(messages, ctx=ctx)
         proposal = parse_proposal(raw)
-        _set_state(ctx, proposal=proposal, decided_by="model", model_raw=raw)
+        _set_state(ctx, proposal=proposal, decided_by="model", model_raw=raw, context=context_size)
         if ctx.store_coordinator is not None:
             store = ctx.store_coordinator
             store.record_turn(TurnSummary(
@@ -236,6 +288,8 @@ class AmongUsDecideStep(StepBase):
                 item_id=memory["event_id"],
                 origin=_origin("game_chat", source, speaker) if speaker else observed,
             ))
+        if not state.get("beliefs"):
+            return records
         records.append(evidence(
             record_id="beliefs:suspicion",
             kind=ContextKind.SUMMARY,
@@ -265,6 +319,7 @@ class AmongUsValidateStep(StepBase):
             "decided_by": state.get("decided_by", "policy") if validation["status"] == "accepted" else "policy",
             "validation": validation,
             "memory": state.get("memory", {}),
+            "context": state.get("context"),
             # What the agent believes it remembers — kept for evaluation, which
             # compares it against the agent's own view of each event.
             "recalled": [
@@ -336,3 +391,11 @@ STEPS = (
     AmongUsDecideStep,
     AmongUsValidateStep,
 )
+BASELINE_STEPS = (
+    AmongUsPerceiveStep,
+    AmongUsTranscriptStep,
+    AmongUsDecideStep,
+    AmongUsValidateStep,
+)
+#: Every step type the experiment registers.
+ALL_STEPS = (*STEPS, AmongUsTranscriptStep)

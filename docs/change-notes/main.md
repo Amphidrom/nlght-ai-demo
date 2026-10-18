@@ -3,6 +3,8 @@
 ## main (unreleased)
 
 - among-us (experimental): up to fifteen ego-driven agents (a full lobby, 1–3 impostors by the game's lobby limits) play a deterministic Among Us simulation through the new `among_us_agent_turn` workflow (perceive, remember, believe, decide, validate), one Hive Mind session per agent, with ego-dependent encoding and forgetting, evidence-checked actions, replays and leakage/recall/validity metrics. (working/among-us-slice)
+- among-us: add the chat-history baseline workflow (`among_us_agent_turn_baseline`: verbatim, never-forgetting, bounded transcript, no beliefs), mixed ego/baseline lobbies, context size per model turn, and an evaluation by memory mode. (working/among-us-slice)
+- among-us: a declined kill opportunity is a decision point again only when the potential victims change. (working/among-us-slice)
 - among-us: schedule agent turns — priority (meetings, salient observations first), a cap on concurrent model turns, a per-tick model budget with policy fallback, and a per-turn deadline; every decision records its scheduling mode. (working/among-us-slice)
 - among-us: define ego files by one strict pydantic schema (typed, ranged, sectioned by cognitive stage, no unknown keys) with a generated JSON schema for editors. (working/among-us-slice)
 - among-us: define bridge protocol v1 (NDJSON over loopback) with shared fixtures, a `BridgeEnvironment` client and an unbuilt C# BepInEx/Reactor bridge skeleton for the real game. (working/among-us-slice)

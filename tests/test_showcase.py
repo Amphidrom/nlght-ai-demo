@@ -192,8 +192,8 @@ class CatalogTests(unittest.TestCase):
         # Six cases contribute ten terminal LLM steps; the knowledge case adds
         # its answer step. Its extraction step reads through the provider held
         # at temperature 0.
-        # The Among Us decide step adds one more.
-        self.assertEqual(12, seed_text.count('"model_provider":"ollama"'))
+        # The two Among Us workflows (ego and baseline) add one decide step each.
+        self.assertEqual(13, seed_text.count('"model_provider":"ollama"'))
         self.assertEqual(1, seed_text.count('"model_provider":"ollama-extract"'))
 
     def test_sampling_is_provider_configuration(self) -> None:

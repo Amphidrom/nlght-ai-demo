@@ -28,3 +28,26 @@ ON CONFLICT (workflow_step_id) DO UPDATE SET
     position = EXCLUDED.position, name = EXCLUDED.name, type = EXCLUDED.type,
     config = EXCLUDED.config, transitions = EXCLUDED.transitions,
     is_start = EXCLUDED.is_start, is_terminal = EXCLUDED.is_terminal;
+
+-- Baseline for the comparison: the same turn with a verbatim, never-forgetting
+-- transcript instead of ego memory and beliefs. Perception, persona, rules,
+-- validator and model provider are identical, so only the memory differs.
+INSERT INTO workflows (workflow_id, name, description) VALUES
+('a8100000-0000-0000-0000-000000000021', 'among_us_agent_turn_baseline', 'Among Us turn with a plain transcript memory, for comparison')
+ON CONFLICT DO NOTHING;
+INSERT INTO workflow_versions (workflow_version_id, workflow_id, version, status) VALUES
+('a8100000-0000-0000-0000-000000000022', 'a8100000-0000-0000-0000-000000000021', 1, 'active')
+ON CONFLICT DO NOTHING;
+INSERT INTO workflow_steps (workflow_step_id, workflow_version_id, position, name, type, config, transitions, is_start, is_terminal) VALUES
+('a8100000-0000-0000-0000-000000000030', 'a8100000-0000-0000-0000-000000000022', 1, 'perceive', 'among_us_perceive',
+ '{}', '{"perceived":"a8100000-0000-0000-0000-000000000031"}', true, false),
+('a8100000-0000-0000-0000-000000000031', 'a8100000-0000-0000-0000-000000000022', 2, 'transcript', 'among_us_transcript',
+ '{}', '{"remembered":"a8100000-0000-0000-0000-000000000032"}', false, false),
+('a8100000-0000-0000-0000-000000000032', 'a8100000-0000-0000-0000-000000000022', 3, 'decide', 'among_us_decide',
+ '{"model_provider":"ollama","debug":false}', '{"decided":"a8100000-0000-0000-0000-000000000033"}', false, false),
+('a8100000-0000-0000-0000-000000000033', 'a8100000-0000-0000-0000-000000000022', 4, 'validate', 'among_us_validate',
+ '{}', '{}', false, true)
+ON CONFLICT (workflow_step_id) DO UPDATE SET
+    position = EXCLUDED.position, name = EXCLUDED.name, type = EXCLUDED.type,
+    config = EXCLUDED.config, transitions = EXCLUDED.transitions,
+    is_start = EXCLUDED.is_start, is_terminal = EXCLUDED.is_terminal;

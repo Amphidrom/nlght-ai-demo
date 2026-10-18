@@ -24,7 +24,7 @@ from among_us.ego import ego_ids, load_ego
 from among_us.environment import BridgeEnvironment, GameEnvironment, SimEnvironment
 from among_us.evaluation import evaluate
 from among_us.match import (
-    WORKFLOW,
+    MEMORY_MODES,
     MatchRecord,
     PipelineAgentRunner,
     ReplayWriter,
@@ -58,11 +58,13 @@ class AmongUsAdapter:
             container = request.app.state.container
             if not options["offline"]:
                 repository = container.workflow_repository
-                workflow = await repository.find_by_name(WORKFLOW) if repository else None
-                if workflow is None or not workflow.enabled:
-                    raise HTTPException(503, f"Workflow '{WORKFLOW}' is not seeded; load seed/08_among_us.sql.")
+                for name in {MEMORY_MODES[mode] for mode in options["modes"].values()}:
+                    workflow = await repository.find_by_name(name) if repository else None
+                    if workflow is None or not workflow.enabled:
+                        raise HTTPException(503, f"Workflow '{name}' is not seeded; load seed/08_among_us.sql.")
             match_id = uuid.uuid4().hex[:12]
-            record = MatchRecord(match_id, options["seed"], options["assignment"], options["environment"])
+            record = MatchRecord(match_id, options["seed"], options["assignment"], options["environment"],
+                                 modes=options["modes"])
             self._matches[match_id] = record
             environment = self._environment(options)
             runner = PipelineAgentRunner() if options["offline"] else WorkflowAgentRunner(
@@ -159,12 +161,18 @@ def _match_options(body: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(422, f"{len(assignment)} players allow 1 to {max_impostors(len(assignment))} impostors.")
     if not 47100 <= port <= 47199:
         raise HTTPException(422, "bridge_port must be within 47100-47199.")
+    # Players that play with the transcript baseline instead of ego memory.
+    baseline = body.get("baseline") or []
+    if not isinstance(baseline, list) or not set(baseline) <= set(assignment):
+        raise HTTPException(422, "baseline must list players of this match.")
+    modes = {player: "baseline" if player in baseline else "ego" for player in assignment}
     try:
         scheduler = SchedulerConfig.model_validate(body.get("scheduler") or {})
     except ValidationError as exc:
         raise HTTPException(422, f"Invalid scheduler settings: {exc.errors(include_url=False)}") from exc
     return {
         "scheduler": scheduler,
+        "modes": modes,
         "environment": environment,
         "assignment": assignment,
         "seed": seed,

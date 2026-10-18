@@ -3,7 +3,7 @@
 
 """Entrypoint for the six small nlght-ai showcase cases."""
 
-from among_us import STEPS as AMONG_US_STEPS
+from among_us import ALL_STEPS as AMONG_US_STEPS
 from among_us.adapter import AmongUsAdapter
 from document_intake import IntakeExtractStep, IntakeRespondStep, IntakeValidateStep
 from incident_triage import IncidentClassifyStep, IncidentNormalizeStep, IncidentRespondStep
