@@ -78,6 +78,9 @@ class SimEnvironment:
     async def advance(self) -> MatchEnd | None:
         return self.engine.advance()
 
+    def spectator_view(self) -> dict[str, Any]:
+        return self.engine.spectator_view()
+
     def ground_truth(self) -> GroundTruth:
         return GroundTruth(
             roles={pid: self.engine.role_of(pid).value for pid in self.engine.player_ids},

@@ -128,6 +128,20 @@ class SimEngine:
     def alive(self) -> tuple[str, ...]:
         return tuple(pid for pid, p in self._players.items() if p.alive)
 
+    def spectator_view(self) -> dict:
+        """The whole truth, for the human spectator only. Never an agent input."""
+        return {
+            "tick": self.tick,
+            "phase": self.phase.value,
+            "players": [
+                {"player_id": pid, "room": p.room, "alive": p.alive, "role": p.role.value,
+                 "tasks_remaining": len(p.tasks)}
+                for pid, p in self._players.items()
+            ],
+            "bodies": [{"player_id": b.player_id, "room": b.room} for b in self._bodies.values()],
+            "winner": self.winner.winner if self.winner else None,
+        }
+
     def role_of(self, pid: str) -> Role:
         """Ground truth for evaluation. Never part of an observation."""
         return self._players[pid].role

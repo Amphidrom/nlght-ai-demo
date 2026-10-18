@@ -14,7 +14,7 @@ ROOMS: tuple[str, ...] = (
     "upper_engine", "medbay",
 )
 
-_CORRIDORS: tuple[tuple[str, str], ...] = (
+CORRIDORS: tuple[tuple[str, str], ...] = (
     ("cafeteria", "weapons"), ("cafeteria", "medbay"), ("cafeteria", "admin"),
     ("cafeteria", "upper_engine"), ("cafeteria", "storage"),
     ("weapons", "o2"), ("o2", "navigation"), ("navigation", "shields"),
@@ -27,7 +27,7 @@ _CORRIDORS: tuple[tuple[str, str], ...] = (
 
 ADJACENCY: dict[str, frozenset[str]] = {
     room: frozenset(
-        {b for a, b in _CORRIDORS if a == room} | {a for a, b in _CORRIDORS if b == room}
+        {b for a, b in CORRIDORS if a == room} | {a for a, b in CORRIDORS if b == room}
     )
     for room in ROOMS
 }

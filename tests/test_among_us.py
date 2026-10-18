@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import tomllib
 import re
 import unittest
 from pathlib import Path
@@ -687,3 +688,40 @@ class ClaimTests(unittest.TestCase):
             self.fail("no seed produced claims from both sides")
         self.assertEqual(report["crew"]["claims"], report["crew"]["true"], "crew stated its true room")
         self.assertGreater(report["impostors"]["lies"], 0)
+
+
+class DashboardTests(unittest.TestCase):
+    def test_agent_text_is_never_inserted_as_markup(self) -> None:
+        script = Path("among_us/static/app.js").read_text(encoding="utf-8")
+        for sink in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval("):
+            self.assertNotIn(sink, script)
+
+    def test_dashboard_follows_the_portal_without_motion(self) -> None:
+        styles = Path("among_us/static/styles.css").read_text(encoding="utf-8")
+        self.assertIn("--paper: #010c0e", styles)
+        for motion_rule in ("transition:", "animation:", "@keyframes", "scroll-behavior:"):
+            self.assertNotIn(motion_rule, styles)
+
+    def test_served_assets_exist_and_are_packaged(self) -> None:
+        from among_us.adapter import _ASSETS
+
+        project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+        patterns = project["tool"]["setuptools"]["package-data"]["among_us"]
+        for name in _ASSETS:
+            self.assertTrue(Path("among_us/static", name).is_file(), name)
+            self.assertIn(f"static/*{Path(name).suffix}", patterns)
+
+    def test_map_layout_covers_every_room(self) -> None:
+        from among_us.sim.map import ROOMS
+
+        script = Path("among_us/static/app.js").read_text(encoding="utf-8")
+        for room in ROOMS:
+            self.assertRegex(script, rf"\b{room}: \[")
+
+    def test_spectator_view_is_not_part_of_any_observation(self) -> None:
+        engine = SimEngine(EGOS, seed=1)
+        view = engine.spectator_view()
+        self.assertEqual(len(EGOS), len(view["players"]))
+        observation = to_dict(engine.observe("sherlock"))
+        self.assertNotIn("players", observation)
+        self.assertNotIn("role", json.dumps(observation["visible_players"]))

@@ -269,7 +269,8 @@ Invoke-RestMethod -Method Post http://localhost:9000/among-us/api/matches `
   -ContentType application/json -Body '{"seed":7}'
 ```
 
-Add `"offline": true` to play without a model or database. The C# bridge for the real game
+Add `"offline": true` to play without a model or database. Watch and start matches in the
+spectator dashboard at <http://localhost:9000/among-us>. The C# bridge for the real game
 (`among_us/bridge`) is an unbuilt skeleton. Architecture, metrics and the bridge protocol are in
 `docs/documentation/among-us.md`.
 

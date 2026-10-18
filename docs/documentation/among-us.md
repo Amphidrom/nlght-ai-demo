@@ -147,6 +147,23 @@ the evaluation compares them with where everyone really was. That is what makes 
 measurable without parsing free text: an impostor's false claim is a lie, a crewmate's false claim
 is a mistake — usually a memory error the ego is allowed to make.
 
+## Spectator dashboard
+
+`http://localhost:9000/among-us` starts a match (seats, baseline seats, seed, impostors, offline) and
+follows it live:
+
+- **Ship map** from `GET /among-us/api/matches/{id}/spectator` — where everyone really is, bodies,
+  and roles on demand. This is the spectator's ground truth (simulation only); it never enters an
+  agent's context.
+- **Decision feed** from the event stream: scheduling mode, reason, action, statement, and why a
+  model proposal was refused.
+- **Agent cards**: ego, memory mode, status, stored/recalled/forgotten memories with a timeline,
+  the current prime suspect, the last statement.
+- **Evaluation** once the match ends: leakage, validity, claims and deception, ego vs baseline,
+  recall per agent.
+
+Agent and model text is rendered as text only, never as markup.
+
 ## Evaluation
 
 | Metric | Measured as |
@@ -161,4 +178,4 @@ is a mistake — usually a memory error the ego is allowed to make.
 
 ## Not in this slice
 
-Dashboard and memory timeline, an Impostor server plugin, and any use of Among Us artwork.
+An Impostor server plugin, and any use of Among Us artwork.

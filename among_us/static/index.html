@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Among Us Agents</title>
+  <link rel="stylesheet" href="/among-us/assets/styles.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">nlght<span>·ai</span> <small>among us · experimental</small></span>
+    <span><a href="/demo">Showcase</a> · <a href="/docs">API docs ↗</a></span>
+  </nav>
+
+  <main>
+    <section class="panel" id="setup">
+      <p class="eyebrow">Start a match</p>
+      <form id="start">
+        <div class="fields">
+          <label>Seed <input name="seed" type="number" value="7" min="0"></label>
+          <label>Impostors <input name="impostors" type="number" value="2" min="1" max="3"></label>
+          <label class="check"><input name="offline" type="checkbox"> Offline (no model)</label>
+          <button class="primary" type="submit">Start</button>
+        </div>
+        <p class="hint">Seat an ego by ticking it; tick <b>baseline</b> to give that seat a plain chat-history memory instead.</p>
+        <div id="ego-picker" class="ego-picker"></div>
+      </form>
+      <p id="start-state" class="muted"></p>
+    </section>
+
+    <section id="live" hidden>
+      <div class="status-bar">
+        <span id="match-title"></span>
+        <span id="match-status" class="badge"></span>
+        <span id="match-clock" class="muted"></span>
+        <label class="check"><input id="reveal" type="checkbox"> Reveal roles</label>
+      </div>
+
+      <div class="grid-two">
+        <div class="panel">
+          <p class="eyebrow">Ship · ground truth for spectators</p>
+          <svg id="map" viewBox="0 0 720 440" role="img" aria-label="Map of the ship with player positions"></svg>
+          <p class="hint">The map shows where everyone really is. Agents never see this — each perceives only its own room.</p>
+        </div>
+        <div class="panel">
+          <p class="eyebrow">Decisions</p>
+          <ol id="feed" class="feed"></ol>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="eyebrow">Agents · what each one remembers and suspects</p>
+        <div id="agents" class="agents"></div>
+      </div>
+
+      <div class="panel" id="evaluation" hidden>
+        <p class="eyebrow">Evaluation</p>
+        <div id="evaluation-body"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer><span>nlght-ai · Among Us agents (experimental)</span><span>© 2026 Amphidrom GmbH</span></footer>
+  <script src="/among-us/assets/app.js"></script>
+</body>
+</html>

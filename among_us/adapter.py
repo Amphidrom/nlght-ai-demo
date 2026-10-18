@@ -4,7 +4,11 @@ POST /among-us/api/matches                 start a match (simulation or bridge)
 GET  /among-us/api/matches/{id}            status and result
 GET  /among-us/api/matches/{id}/events     decision log as server-sent events
 GET  /among-us/api/matches/{id}/evaluation metrics against the ground truth
+GET  /among-us/api/matches                  all matches of this process
+GET  /among-us/api/matches/{id}/spectator  ground truth for the human spectator (simulation)
 GET  /among-us/api/egos                    available cognitive profiles
+GET  /among-us/api/map                     rooms and corridors of the simulated ship
+GET  /among-us                             spectator dashboard
 """
 
 from __future__ import annotations
@@ -14,10 +18,11 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import ValidationError
 
 from among_us.ego import ego_ids, load_ego
@@ -33,19 +38,40 @@ from among_us.match import (
 )
 from among_us.scheduler import DecisionScheduler, SchedulerConfig
 from among_us.sim.engine import MAX_PLAYERS, MIN_PLAYERS, max_impostors
+from among_us.sim.map import CORRIDORS, ROOMS
 
 logger = logging.getLogger(__name__)
 _TERMINAL = {"finished", "failed"}
+_STATIC = Path(__file__).with_name("static")
+#: The only files the dashboard route serves.
+_ASSETS = {"index.html": "text/html", "styles.css": "text/css", "app.js": "text/javascript"}
 
 
 class AmongUsAdapter:
     def __init__(self, *, run_dir: str = ".among-us-runs") -> None:
         self._matches: dict[str, MatchRecord] = {}
+        self._environments: dict[str, GameEnvironment] = {}
         self._replays = ReplayWriter(run_dir)
         self._tasks: set[asyncio.Task[Any]] = set()
 
     def build_router(self) -> APIRouter:
         router = APIRouter(tags=["among-us"])
+
+        @router.get("/among-us", include_in_schema=False)
+        async def dashboard() -> HTMLResponse:
+            return HTMLResponse(_asset("index.html"))
+
+        @router.get("/among-us/assets/{name}", include_in_schema=False)
+        async def asset(name: str) -> Response:
+            media = _ASSETS.get(name)
+            if media is None:
+                raise HTTPException(404, "Asset not found.")
+            return Response(_asset(name), media_type=media)
+
+        @router.get("/among-us/api/map")
+        async def ship_map() -> dict[str, Any]:
+            """Rooms and corridors of the simulated ship, for drawing it."""
+            return {"rooms": list(ROOMS), "corridors": [list(edge) for edge in CORRIDORS]}
 
         @router.get("/among-us/api/egos")
         async def egos() -> dict[str, Any]:
@@ -67,6 +93,7 @@ class AmongUsAdapter:
                                  modes=options["modes"])
             self._matches[match_id] = record
             environment = self._environment(options)
+            self._environments[match_id] = environment
             runner = PipelineAgentRunner() if options["offline"] else WorkflowAgentRunner(
                 container, model=_default_model(container),
             )
@@ -84,6 +111,19 @@ class AmongUsAdapter:
         async def events(match_id: str) -> StreamingResponse:
             record = self._require(match_id)
             return StreamingResponse(self._stream(record), media_type="text/event-stream")
+
+        @router.get("/among-us/api/matches/{match_id}/spectator")
+        async def spectator(match_id: str) -> dict[str, Any]:
+            """Ground truth for the human spectator (simulation only); agents never see it."""
+            self._require(match_id)
+            view = getattr(self._environments.get(match_id), "spectator_view", None)
+            if view is None:
+                raise HTTPException(404, "No spectator view for this environment.")
+            return view()
+
+        @router.get("/among-us/api/matches")
+        async def matches() -> dict[str, Any]:
+            return {"matches": [record.summary() for record in reversed(self._matches.values())]}
 
         @router.get("/among-us/api/matches/{match_id}/evaluation")
         async def evaluation(match_id: str) -> dict[str, Any]:
@@ -123,6 +163,10 @@ class AmongUsAdapter:
                 return
             yield ": keep-alive\n\n"
             await record.wait_for_change()
+
+
+def _asset(name: str) -> str:
+    return (_STATIC / name).read_text(encoding="utf-8")
 
 
 def _match_options(body: dict[str, Any]) -> dict[str, Any]:
