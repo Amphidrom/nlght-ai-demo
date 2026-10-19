@@ -187,6 +187,8 @@ class Observation:
     #: In a meeting: its chat so far, word for word, as it stands on everyone's screen.
     meeting_chat: tuple[ChatMessage, ...] = ()
     situation: Situation = Situation()
+    #: Everyone's colour, as everyone sees it: players call each other by it.
+    colors: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -576,7 +578,16 @@ def observation_from_dict(raw: Any) -> Observation:
             for c in _list(body.get("meeting_chat"), "meeting_chat")
         ),
         situation=_situation(body.get("situation")),
+        colors=_colors(body.get("colors")),
     )
+
+
+def _colors(raw: Any) -> dict[str, str]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in raw.items()):
+        raise ProtocolError("colors must map players to colour names")
+    return dict(raw)
 
 
 def _situation(raw: Any) -> Situation:

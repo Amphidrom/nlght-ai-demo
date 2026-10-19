@@ -55,6 +55,8 @@ _SALIENT = frozenset({
 
 MIN_PLAYERS = 4
 MAX_PLAYERS = 15
+_COLORS = ("red", "blue", "green", "pink", "orange", "yellow", "black", "white", "purple", "brown", "cyan", "lime",
+           "maroon", "rose", "banana")
 
 SHAPESHIFTER = "SHAPESHIFTER"
 PHANTOM = "PHANTOM"
@@ -152,6 +154,8 @@ class SimEngine:
             special = roles_left.pop(0) if role is Role.IMPOSTOR and roles_left else None
             self._players[pid] = _Player(pid, role, tasks, special)
         self._tasks_dealt = {pid: len(p.tasks) for pid, p in self._players.items()}
+        # The game's colours, one per seat.
+        self._colors = {pid: _COLORS[i % len(_COLORS)] for i, pid in enumerate(self._players)}
         self._kill_cooldown = kill_cooldown
         self._task_ticks = task_ticks
         self._sabotage_cooldown_ticks = sabotage_cooldown
@@ -305,6 +309,7 @@ class SimEngine:
             alarm=self._sabotage[0] if self._sabotage and self._sabotage[0] in CRITICAL_SABOTAGES else None,
             outages=tuple(sorted({self._sabotage[0]} - CRITICAL_SABOTAGES)) if self._sabotage else (),
             meeting_chat=tuple(self._meeting_chat) if in_meeting else (),
+            colors=dict(self._colors),
             situation=Situation(
                 task_progress=None if self._outage("comms") else self.task_progress(),
                 emergencies_left=None if player.role is Role.IMPOSTOR else int(not player.button_used),

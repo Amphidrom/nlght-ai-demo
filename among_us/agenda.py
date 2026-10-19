@@ -63,13 +63,25 @@ def update(items: list[dict[str, Any]], observation: Observation, recalled: Sequ
 
 
 def questions_for(observation: Observation) -> list[Question]:
-    """What others said to or about this agent by name since it last spoke — a question or not: answer it first."""
+    """What others said to this agent since it last spoke — a question or not: answer it first.
+
+    To it means: naming it; replying to it — a line from someone it spoke to in its last line; or a line the server
+    saw addressed to it (by colour, say: "<player> addressed you" in the turn's reason).
+    """
 
     me = observation.agent_id
     chat = list(observation.meeting_chat)
     last_own = max((i for i, m in enumerate(chat) if m.speaker == me), default=-1)
-    return [Question(m.speaker, m.text) for m in chat[last_own + 1:]
-            if m.speaker != me and _mentions(m.text.lower(), me)]
+    spoken_to = {p for p in observation.roster if p != me and last_own >= 0 and _mentions(chat[last_own].text.lower(), p)}
+    addressed_by = re.match(r"^(\w+) addressed you", observation.decision_reason or "")
+    by_reason = addressed_by.group(1) if addressed_by else None
+    since = [m for m in chat[last_own + 1:] if m.speaker != me]
+    colour = observation.colors.get(me)
+    lines = [m for m in since if _mentions(m.text.lower(), me) or (colour and _mentions(m.text.lower(), colour))
+             or m.speaker in spoken_to]
+    if by_reason and not any(m.speaker == by_reason for m in lines):
+        lines += [m for m in since if m.speaker == by_reason][-1:]
+    return [Question(m.speaker, m.text) for m in lines]
 
 
 def replies(items: Sequence[dict[str, Any]], observation: Observation, recalled: Sequence[dict[str, Any]]) -> list[Reply]:

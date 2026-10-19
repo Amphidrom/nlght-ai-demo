@@ -18,9 +18,9 @@ from among_us.sim.map import ROOMS, SABOTAGE_ROOMS, TASKS
 _HUNTING_GROUNDS = ("electrical", "admin", "medbay", "storage", "navigation", "weapons")
 _ACCUSING = ("sus", "suspect", "saw", "kill", "vote", "impostor", "lying", "liar")
 _QUESTIONS = (
-    "Where was everyone when it happened?",
-    "Who found the body, and where exactly?",
-    "Can anyone vouch for where they were?",
+    "Everyone, where were you when it happened?",
+    "Everyone, who found the body, and where exactly?",
+    "Everyone, can anyone vouch for where they were?",
 )
 _PRIOR = 0.2
 
@@ -125,7 +125,9 @@ def _meeting_turn(observation: Observation, beliefs: dict[str, dict[str, Any]], 
             lines.append((f"{line.asker}, I was in {here}.", "ANSWER", ()))
     for item in agenda:
         if not item["done"]:
-            lines.append((item["text"], "TELL" if item["kind"] == "tell" else "QUESTION",
+            # Every line says whom it is for: a question names its player already, news goes to everyone.
+            text = f"Everyone, {item['text']}" if item["kind"] == "tell" else item["text"]
+            lines.append((text, "TELL" if item["kind"] == "tell" else "QUESTION",
                           tuple(e for e in item["evidence"] if e in recalled_ids)))
     accusers = [m.speaker for m in chat if m.speaker != agent and accuses(m.text, agent)]
     if accusers:

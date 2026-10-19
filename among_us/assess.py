@@ -310,5 +310,11 @@ def _impostor(observation: Observation, beliefs: dict[str, dict[str, Any]], ego:
     return None
 
 
-def chat_lines(chat: Sequence[ChatMessage], self_id: str) -> list[str]:
-    return [f"{'you' if m.speaker == self_id else m.speaker}: {m.text}" for m in chat]
+def who(player: str, colors: dict[str, str]) -> str:
+    """A player as others see them: name and colour."""
+
+    return f"{player} ({colors[player]})" if player in colors else player
+
+
+def chat_lines(chat: Sequence[ChatMessage], self_id: str, colors: dict[str, str] | None = None) -> list[str]:
+    return [f"{'you' if m.speaker == self_id else who(m.speaker, colors or {})}: {m.text}" for m in chat]

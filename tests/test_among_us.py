@@ -1161,7 +1161,7 @@ class AgendaTests(unittest.TestCase):
         answered = self._meeting(("hawk", "Sherlock, where were you?"), ("sherlock", "hawk, I was in cafeteria."))
         self.assertEqual([], questions_for(answered))
         agenda = update(agenda, answered, recalled, {})
-        self.assertEqual("I saw hawk in electrical just before nova's body was found there.",
+        self.assertEqual("Everyone, I saw hawk in electrical just before nova's body was found there.",
                          fallback_action(answered, {}, {"e1", "e2"}, agenda).text)
 
     def test_the_meeting_turn_shows_the_agenda_and_the_questions(self) -> None:
@@ -1292,3 +1292,53 @@ class ListeningTests(unittest.TestCase):
         observation = self._table()
         prompt = meeting_prompt(observation, load_ego("sherlock"), assess(observation, {}, [], load_ego("sherlock"), None), [], {})
         self.assertTrue(prompt.context[0][1].startswith("This meeting: hawk reported the dead body of nova."))
+
+
+class AddressedTests(unittest.TestCase):
+    """Spoken to by name, by colour, or answered after speaking to someone: the agent answers."""
+
+    def _chat(self, *chat: tuple[str, str], reason: str = "") -> Observation:
+        return crew_observation(roster=("sherlock", "hawk", "echo"), decision_reason=reason,
+                                meeting_chat=tuple(ChatMessage(s, t) for s, t in chat))
+
+    def test_a_reply_to_the_agent_counts_as_spoken_to(self) -> None:
+        from among_us.agenda import questions_for
+
+        chat = self._chat(("sherlock", "hawk, what were you doing in electrical?"), ("hawk", "Fixing wires, obviously."))
+        self.assertEqual(["hawk"], [q.asker for q in questions_for(chat)])
+        self.assertEqual([], questions_for(self._chat(("sherlock", "hawk, why there?"), ("echo", "I was in admin."))))
+
+    def test_spoken_to_by_colour_as_the_server_saw_it(self) -> None:
+        from among_us.agenda import questions_for
+
+        chat = self._chat(("echo", "red, where were you?"), reason="echo addressed you")
+        self.assertEqual([("echo", "red, where were you?")], [(q.asker, q.text) for q in questions_for(chat)])
+
+
+
+class ColourTests(unittest.TestCase):
+    """Players see and call each other by colour; the agents do too."""
+
+    def test_the_meeting_turn_shows_names_with_colours_and_asks_to_address(self) -> None:
+        from among_us.assess import assess
+        from among_us.turn import meeting_prompt
+
+        observation = crew_observation(roster=("sherlock", "hawk"), visible_players=(VisiblePlayer("hawk", "meeting"),),
+                                       meeting_chat=(ChatMessage("hawk", "Hi."),), colors={"sherlock": "red", "hawk": "blue"})
+        prompt = meeting_prompt(observation, load_ego("sherlock"), assess(observation, {}, [], load_ego("sherlock"), None), [], {})
+        text = "\n".join(t for _, t, _ in prompt.context)
+        self.assertIn("At the table: hawk (blue).", text)
+        self.assertIn("hawk (blue): Hi.", text)
+        self.assertIn("Start every message with whom you speak to", prompt.rules)
+
+    def test_called_by_colour_the_agent_knows_it_is_meant(self) -> None:
+        from among_us.agenda import questions_for
+
+        observation = crew_observation(roster=("sherlock", "hawk"), colors={"sherlock": "red", "hawk": "blue"},
+                                       meeting_chat=(ChatMessage("hawk", "Red, where were you?"),))
+        self.assertEqual(["hawk"], [q.asker for q in questions_for(observation)])
+
+    def test_the_simulation_gives_everyone_a_colour(self) -> None:
+        colors = SimEngine(EGOS, seed=1).observe("sherlock").colors
+        self.assertEqual(set(EGOS), set(colors))
+        self.assertEqual(len(EGOS), len(set(colors.values())))
