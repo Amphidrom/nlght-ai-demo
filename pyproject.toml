@@ -9,8 +9,10 @@ requires-python = ">=3.11"
 dependencies = [
     # Requires the canonical-message and action-semantics APIs: typed
     # TrustedInstruction/UserMessage/ContextRecord prompts, and mandatory
-    # action semantics on every tool signature. Both landed in 0.1.3.
-    "nlght-ai[docker,hive-mind]>=0.1.3",
+    # action semantics on every tool signature (both 0.1.3), sampling
+    # temperature as model provider configuration, and tool results that
+    # carry their content origin (both 0.1.4).
+    "nlght-ai[docker,hive-mind]>=0.1.4",
 ]
 
 [project.optional-dependencies]

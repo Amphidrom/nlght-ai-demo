@@ -139,5 +139,5 @@ class IntakeRespondStep(StepBase):
             conversation = [UserMessage(source_text)]
         await ctx.emitter.emit(Signal("assistant", "Generating policy-aware intake explanation", kind="status"))
         messages = compose_messages(compose_prompt(_INSTRUCTIONS, records), conversation)
-        await ctx.llm.call(messages=messages, temperature=0.1)
+        await ctx.llm.call(messages=messages)
         return StepResult(ctx=ctx, verdict="done")

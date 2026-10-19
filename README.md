@@ -45,8 +45,9 @@ policy set.
 
 ## Platform requirement
 
-This gallery targets **nlght-ai 0.1.3 or newer** (`nlght-ai[docker,hive-mind]>=0.1.3`). It does not
-run on 0.1.x: every case was migrated to two APIs that 0.1.x does not have.
+This gallery targets **nlght-ai 0.1.4 or newer** (`nlght-ai[docker,hive-mind]>=0.1.4`). It does not
+run on 0.1.3 or older: every case relies on the typed-message and action-semantics APIs introduced in
+0.1.3, and on provider-configured sampling and content origins introduced in 0.1.4.
 
 **Typed messages with explicit authority.** A step no longer hands the model a list of
 `{"role": ...}` dictionaries. Instructions are `TrustedInstructionMessage` — the only message type
@@ -65,7 +66,7 @@ records = [evidence(
     document_id="MANUAL-204",
 )]
 messages = compose_messages(compose_prompt(_INSTRUCTIONS, records), conversation)
-await ctx.llm.call(messages=messages, temperature=0.1)
+await ctx.llm.call(messages=messages)
 ```
 
 `grounding/context.py` holds the two helpers every case shares; each step still builds and composes
@@ -74,8 +75,38 @@ its own records, because that boundary is the thing worth reading.
 **Mandatory action semantics on tools.** A `ToolSignature` without an `action` is *unknown*, never
 read-only, and an execution-capable catalog refuses it — `ShippingRateTool` declares its rate table
 as a pure request-scoped calculation with no side effect and no egress. Steps invoke tools only
-through `ctx.tools.execute({"name": ..., "input": ...})`, which validates and binds arguments,
-resolves those semantics, and applies policy before any method runs.
+through the step's tool catalog, which validates and binds arguments, resolves those semantics, and
+applies policy before any method runs.
+
+**Sampling is provider configuration.** Since 0.1.4 `ctx.llm.call()` takes no `temperature`; passing
+one is a `TypeError`. The value lives on the model provider in `platform.yaml` and is sent on every
+call through it. The demo configures two providers on the same local model:
+
+| Provider | `temperature` | Used by |
+|---|---|---|
+| `ollama` | `0.1` | every showcase answer step |
+| `ollama-extract` | `0` | `knowledge.extract` in the Knowledge Base case only |
+
+A step selects its provider with `model_provider` in its seeded configuration, so a different
+sampling setting is a different provider, never a per-call argument.
+
+**Content carries its origin.** Since 0.1.4 every piece of content knows where it came from, and that
+origin reaches each action decision. The Shipping Quote case shows the full path:
+
+```python
+conversation = [UserMessage(json.dumps({"shipment": shipment}))]
+quote = await ctx.tools.execute_with_origin(
+    {"name": "shipping_quote", "input": shipment},
+    context_origin=origin_of(conversation),   # the caller's shipment: untrusted
+)
+records = [evidence(..., content=quote.content, origin=quote.origin)]
+```
+
+The decision sees that the shipment came from the caller, and `ShippingRateTool` returns a
+`ToolOutput` labelled as trusted `rate_table` content — a bare string would be unannotated, which
+counts as untrusted. In the Knowledge Base case the store lists the shipped handbook as
+`trusted_sources: ["northstar-handbook"]`, so its claims are trusted content. Trust labels content;
+it never turns context into instructions and never authorizes an action by itself.
 
 `docs/` and the tests assert both boundaries: evidence must appear in the untrusted context of a
 call and must *not* appear in its trusted instructions.
@@ -124,8 +155,12 @@ ollama pull qwen3-coder:30b
 
 You do not need both models unless you switch between both configurations. To use another local
 model, change `integrations.model_providers[].config.default_model` in the active platform config,
-run `ollama pull <model>`, and restart the demo. The model-provider name remains `ollama` because
-the seeded LLM steps reference that provider by name.
+run `ollama pull <model>`, and restart the demo. Keep the provider names `ollama` and
+`ollama-extract` because the seeded LLM steps reference those providers by name.
+
+When upgrading from the 0.1.3 demo, add the sampling settings to your own `.config/platform.yaml`
+as in `docker/platform.yaml`: `temperature: 0.1` on `ollama`, and a second provider
+`ollama-extract` with the same model and `temperature: 0`.
 
 ```powershell
 uv sync
@@ -179,8 +214,9 @@ uv run nlght-ai migrate-knowledge -x url=postgresql+asyncpg://knowledge:knowledg
 psql $env:DATABASE_URL -f demo/seed/07_knowledge_base.sql
 ```
 
-`platform.yaml` needs no changes: both stores are resource rows carrying their own `pg_url`, because
-the knowledge database is reached only through the activations that use it. If your OpenSearch or
+`platform.yaml` needs only the `ollama-extract` provider described above: both stores are resource
+rows carrying their own `pg_url`, because the knowledge database is reached only through the
+activations that use it. If your OpenSearch or
 knowledge database runs elsewhere, edit the two `INSERT INTO resources` rows at the end of
 `seed/07_knowledge_base.sql`.
 
@@ -210,6 +246,8 @@ point of reporting them rather than asserting them.
 
 Re-running the ingest step costs nothing: `knowledge.extract` records what it read, and a document
 whose content and extraction version are unchanged is skipped rather than sent to the model again.
+After upgrading from nlght-ai 0.1.3 the extraction version changes once (it no longer hashes the
+temperature), so the first ingest re-extracts the corpus; later sampling changes leave it alone.
 To hold one run against the one before it:
 
 ```powershell

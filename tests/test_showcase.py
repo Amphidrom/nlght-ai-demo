@@ -26,7 +26,9 @@ from nlght.core.model.messages import (
     UntrustedContextMessage,
     UserMessage,
 )
+from nlght.core.model.trust import ContentOrigin, ContentTrust, SourceRef
 from nlght.core.signals.signal import Signal
+from nlght.core.tools.tool import ToolOutput
 from nlght.core.workflow.step import WorkflowStepContext
 from showcase.adapter import ShowcaseAdapter
 from showcase.catalog import CASES
@@ -47,8 +49,10 @@ class RecordingLlm:
         self.response = response
         self.calls: list[dict] = []
 
-    async def call(self, messages, *, temperature=None) -> None:
-        self.calls.append({"messages": messages, "temperature": temperature})
+    async def call(self, messages) -> None:
+        # Sampling is provider configuration since nlght-ai 0.1.4: a step that
+        # still passes temperature fails here exactly as it would in the runtime.
+        self.calls.append({"messages": messages})
         await self.emitter.emit(Signal("assistant", self.response, kind="result"))
 
 
@@ -186,8 +190,19 @@ class CatalogTests(unittest.TestCase):
     def test_every_llm_terminal_step_selects_its_provider(self) -> None:
         seed_text = "\n".join(path.read_text(encoding="utf-8") for path in Path("seed").glob("*.sql"))
         # Six cases contribute ten terminal LLM steps; the knowledge case adds
-        # its extraction step and its answer step.
-        self.assertEqual(12, seed_text.count('"model_provider":"ollama"'))
+        # its answer step. Its extraction step reads through the provider held
+        # at temperature 0.
+        self.assertEqual(11, seed_text.count('"model_provider":"ollama"'))
+        self.assertEqual(1, seed_text.count('"model_provider":"ollama-extract"'))
+
+    def test_sampling_is_provider_configuration(self) -> None:
+        seed_text = "\n".join(path.read_text(encoding="utf-8") for path in Path("seed").glob("*.sql"))
+        self.assertNotIn('"temperature"', seed_text)
+        for path in Path(".").glob("*/steps.py"):
+            self.assertNotIn("temperature", path.read_text(encoding="utf-8"), path)
+        config = Path("docker/platform.yaml").read_text(encoding="utf-8")
+        self.assertRegex(config, r'name: "ollama"\n(?:.*\n){4}\s+temperature: 0\.1')
+        self.assertRegex(config, r'name: "ollama-extract"\n(?:.*\n){4}\s+temperature: 0\n')
 
     def test_portal_uses_static_brand_styles_without_motion(self) -> None:
         styles = Path("showcase/static/styles.css").read_text(encoding="utf-8")
@@ -366,7 +381,16 @@ class ShippingToolTests(unittest.IsolatedAsyncioTestCase):
     async def test_quote_is_deterministic(self) -> None:
         tool = ShippingRateTool(name="shipping-rates", config={})
         result = await tool.quote(weight_kg=3.5, zone="eu", express=True)
-        self.assertIn('"amount": 21.73', result)
+        self.assertIn('"amount": 21.73', result.content)
+
+    async def test_quote_is_labelled_as_trusted_rate_table_content(self) -> None:
+        tool = ShippingRateTool(name="shipping-rates", config={})
+        result = await tool.quote(weight_kg=1.0, zone="domestic", express=False)
+        self.assertIs(ContentTrust.TRUSTED, result.origin.trust)
+        self.assertEqual(
+            [("rate_table", "shipping_rate/local", "shipping_quote")],
+            [ref.identity for ref in result.origin.sources],
+        )
 
     async def test_signature_declares_action_semantics(self) -> None:
         from nlght.adapters.outbound.tools.registry import ToolLoader
@@ -390,9 +414,14 @@ class ShippingToolTests(unittest.IsolatedAsyncioTestCase):
             def __init__(self) -> None:
                 self.calls: list[dict] = []
 
-            async def execute(self, tc, *, has_external_untrusted_input=True):
+            async def execute_with_origin(self, tc, *, context_origin=None):
                 self.calls.append(tc)
-                return '{"amount": 21.73, "currency": "EUR"}'
+                self.context_origin = context_origin
+                return ToolOutput('{"amount": 21.73, "currency": "EUR"}', origin=rate_table)
+
+        rate_table = ContentOrigin.of(
+            SourceRef("rate_table", "shipping_rate/local", "shipping_quote", ContentTrust.TRUSTED),
+        )
 
         shipment = {"weight_kg": 3.5, "zone": "eu", "express": True}
         ctx = context("", payload={"shipment": shipment})
@@ -404,6 +433,16 @@ class ShippingToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("done", result.verdict)
         self.assertEqual([{"name": "shipping_quote", "input": shipment}], catalog.calls)
         self.assertIn("21.73", evidence_of(llm.calls[0]))
+        # The decision saw the caller's shipment as untrusted content, and the
+        # model receives the quote with the origin the tool reported.
+        self.assertTrue(catalog.context_origin.untrusted_sources)
+        records = [
+            record
+            for message in llm.calls[0]["messages"]
+            if isinstance(message, UntrustedContextMessage)
+            for record in message.records
+        ]
+        self.assertEqual([rate_table], [record.provenance.origin for record in records])
 
 
 class RuntimeDataCheckTests(unittest.IsolatedAsyncioTestCase):
@@ -511,6 +550,12 @@ class KnowledgeSeedTests(unittest.TestCase):
         self.assertIn('"sources":["knowledge"]', seed)
         self.assertNotIn("qdrant", seed)
         self.assertNotIn("data_store", seed)
+
+    def test_store_trusts_only_the_ingested_handbook(self) -> None:
+        seed = self._seed()
+        self.assertIn('"source_id":"northstar-handbook"', seed)
+        self.assertIn('"trusted_sources":["northstar-handbook"]', seed)
+        self.assertEqual(1, seed.count('"trusted_sources"'))
 
     def test_review_policy_is_marked_as_a_demo_choice(self) -> None:
         seed = self._seed()

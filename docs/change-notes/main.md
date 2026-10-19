@@ -2,6 +2,11 @@
 
 ## main (unreleased)
 
+- platform: require nlght-ai 0.1.4. (working/nlght-0.1.4)
+- model: move sampling temperature from every `ctx.llm.call()` to provider configuration — `ollama` at `0.1` for the showcase steps, `ollama-extract` at `0` for `knowledge.extract`, whose `temperature` step key is removed. (working/nlght-0.1.4)
+- shipping: execute the quote through `execute_with_origin()` with the caller's context origin, and label the rate table's result as trusted `ToolOutput` content that the evidence record keeps. (working/nlght-0.1.4)
+- knowledge: list the shipped handbook as the knowledge store's only `trusted_sources` entry. (working/nlght-0.1.4)
+- docs: document provider sampling, content origins, the `.config/platform.yaml` upgrade, and the one-time knowledge re-extraction. (working/nlght-0.1.4)
 - showcase: add directly selectable case variants and clearer outcome-oriented explanations. (working/showcase-case-value)
 - preferences: demonstrate remembered session state by applying a saved response style to a later task. (working/showcase-case-value)
 - intake: expose named policy evaluations and escalate attributable immediate infrastructure threats. (working/showcase-case-value)

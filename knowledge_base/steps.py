@@ -104,7 +104,7 @@ class KnowledgeAnswerStep(StepBase):
         if ctx.llm is None:
             return StepResult(ctx=ctx, verdict="failed")
         await ctx.emitter.emit(Signal("assistant", "Answering from reviewed claims", kind="status"))
-        await ctx.llm.call(messages=ctx.messages, temperature=0.1)
+        await ctx.llm.call(messages=ctx.messages)
         return StepResult(ctx=ctx, verdict="done")
 
 

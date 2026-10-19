@@ -11,6 +11,7 @@ from nlght.core.model.messages import (
     UserMessage,
     compose_messages,
     compose_prompt,
+    origin_of,
 )
 from nlght.core.signals.signal import Signal
 from nlght.core.workflow.step import StepBase, StepResult, WorkflowStepContext
@@ -57,18 +58,24 @@ class ShippingQuoteStep(StepBase):
         await ctx.emitter.emit(Signal("assistant", "Calculating the verified shipping rate", kind="status"))
         # The catalog is the only execution path: it validates and binds the
         # arguments, resolves the action semantics, and applies policy before
-        # the method is ever reached.
-        quote = await ctx.tools.execute({"name": "shipping_quote", "input": shipment})
+        # the method is ever reached. The shipment came from the caller, so the
+        # decision sees untrusted caller content; the result keeps the origin
+        # the tool reported for it.
+        conversation = [UserMessage(json.dumps({"shipment": shipment}))]
+        quote = await ctx.tools.execute_with_origin(
+            {"name": "shipping_quote", "input": shipment},
+            context_origin=origin_of(conversation),
+        )
 
         records = [evidence(
             record_id="tool:shipping_quote",
             kind=ContextKind.OTHER,
-            content=quote,
+            content=quote.content,
             source="tool",
             store="shipping_rate/local",
             item_id="shipping_quote",
+            origin=quote.origin,
         )]
-        conversation = [UserMessage(json.dumps({"shipment": shipment}))]
         messages = compose_messages(compose_prompt(_INSTRUCTIONS, records), conversation)
-        await ctx.llm.call(messages=messages, temperature=0.1)
+        await ctx.llm.call(messages=messages)
         return StepResult(ctx=ctx, verdict="done")

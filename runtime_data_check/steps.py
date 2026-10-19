@@ -72,5 +72,5 @@ class RuntimeCsvCheckStep(StepBase):
         conversation = [UserMessage(json.dumps({"request": "Assess the data quality of the submitted CSV."}))]
         await ctx.emitter.emit(Signal("assistant", "Generating a data-quality explanation", kind="status"))
         messages = compose_messages(compose_prompt(_INSTRUCTIONS, records), conversation)
-        await ctx.llm.call(messages=messages, temperature=0.1)
+        await ctx.llm.call(messages=messages)
         return StepResult(ctx=ctx, verdict="done")

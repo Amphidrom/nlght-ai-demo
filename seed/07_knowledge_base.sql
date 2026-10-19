@@ -38,10 +38,12 @@ INSERT INTO workflow_steps (workflow_step_id, workflow_version_id, position, nam
  '{"tags":{"product":"northstar-desk","version":"1"}}',
  '{"DEFAULT":"b7100000-0000-0000-0000-000000000023"}', false, false),
 
--- The workflow''s own model reads each unit. "unchanged" means every document
--- was already extracted at this exact extraction version — a re-run costs nothing.
+-- The workflow''s own model reads each unit, through the provider configured
+-- at temperature 0 — sampling is provider configuration, not a step key.
+-- "unchanged" means every document was already extracted at this exact
+-- extraction version — a re-run costs nothing.
 ('b7100000-0000-0000-0000-000000000023', 'b7100000-0000-0000-0000-000000000002',  5, 'extract', 'knowledge.extract',
- '{"model_provider":"ollama","unit_batch_size":1,"temperature":0,"writer":"northstar-knowledge-writer"}',
+ '{"model_provider":"ollama-extract","unit_batch_size":1,"writer":"northstar-knowledge-writer"}',
  '{"more":"b7100000-0000-0000-0000-000000000023","DEFAULT":"b7100000-0000-0000-0000-000000000030","unchanged":"b7100000-0000-0000-0000-000000000050","empty":"b7100000-0000-0000-0000-000000000050"}', false, false),
 
 -- Ten structural refinements, in the order the step reference documents.
@@ -108,9 +110,11 @@ ON CONFLICT (workflow_step_id) DO UPDATE SET
 -- The two knowledge activations. Both carry their own knowledge-database URL:
 -- the knowledge database is never named platform-wide, only by the resources
 -- that use it. Adjust the URLs to match docker-compose.knowledge.yml.
+-- The handbook is editorially maintained here, so the store lists its ingestion
+-- source as trusted; a claim is trusted only if all its documents are.
 INSERT INTO resources (resource_id, name, kind, provider, config) VALUES
 ('b7100000-0000-0000-0000-000000000070', 'northstar-knowledge', 'knowledge_store', 'postgres+opensearch',
- '{"pg_url":"postgresql+asyncpg://knowledge:knowledge@localhost:5434/knowledge","os_url":"http://localhost:9200","index_prefix":"northstar"}'),
+ '{"pg_url":"postgresql+asyncpg://knowledge:knowledge@localhost:5434/knowledge","os_url":"http://localhost:9200","index_prefix":"northstar","trusted_sources":["northstar-handbook"]}'),
 ('b7100000-0000-0000-0000-000000000071', 'northstar-knowledge-writer', 'knowledge_index_writer', 'postgres+opensearch',
  '{"pg_url":"postgresql+asyncpg://knowledge:knowledge@localhost:5434/knowledge","os_url":"http://localhost:9200","index_prefix":"northstar"}')
 ON CONFLICT (resource_id) DO UPDATE SET
