@@ -115,6 +115,14 @@ class ObservedEvent:
 
 
 @dataclass(frozen=True)
+class ChatMessage:
+    """One line of the meeting chat, as everyone at the table sees it."""
+
+    speaker: str
+    text: str
+
+
+@dataclass(frozen=True)
 class LegalAction:
     action: ActionKind
     target: str | None = None
@@ -155,6 +163,8 @@ class Observation:
     alarm: str | None = None
     #: Non-critical sabotages in effect ("lights", "comms"); public, like the alarm.
     outages: tuple[str, ...] = ()
+    #: In a meeting: its chat so far, word for word, as it stands on everyone's screen.
+    meeting_chat: tuple[ChatMessage, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -525,5 +535,12 @@ def observation_from_dict(raw: Any) -> Observation:
         roster=_strings(body.get("roster"), "roster"),
         alarm=_optional_str(body.get("alarm"), "alarm"),
         outages=_strings(body.get("outages"), "outages"),
+        meeting_chat=tuple(
+            ChatMessage(
+                speaker=_str((item := _exact(c, ChatMessage)).get("speaker"), "meeting_chat.speaker"),
+                text=str(item.get("text", "")),
+            )
+            for c in _list(body.get("meeting_chat"), "meeting_chat")
+        ),
     )
 

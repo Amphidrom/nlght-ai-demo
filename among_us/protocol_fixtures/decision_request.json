@@ -280,6 +280,7 @@
       "sherlock"
     ],
     "alarm": null,
-    "outages": []
+    "outages": [],
+    "meeting_chat": []
   }
 }

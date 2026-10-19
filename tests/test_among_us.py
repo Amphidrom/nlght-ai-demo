@@ -20,6 +20,7 @@ from among_us.perception import PerceptionViolation, perceive
 from among_us.policy import fallback_action
 from among_us.protocol import (
     ActionKind,
+    ChatMessage,
     EventKind,
     LegalAction,
     LobbyRegistered,
@@ -31,6 +32,7 @@ from among_us.protocol import (
     SeatedAgent,
     SelfState,
     SemanticAction,
+    VisiblePlayer,
     decode,
     encode,
     registered_to_dict,
@@ -974,3 +976,67 @@ class OutageDoorAndRoleTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             _match_options({"impostor_roles": ["VIPER"]})
         self.assertEqual(["PHANTOM"], _match_options({"impostor_roles": ["PHANTOM"]})["impostor_roles"])
+
+
+class MeetingConversationTests(unittest.TestCase):
+    """A meeting is a conversation: agents see what was said, answer, take sides, ask — and never repeat themselves."""
+
+    def _meeting(self, *chat: tuple[str, str], role: Role = Role.CREWMATE, partners: tuple[str, ...] = ()) -> Observation:
+        return crew_observation(
+            self_state=SelfState("sherlock", "admin", role, known_impostors=partners),
+            visible_players=tuple(VisiblePlayer(p, "meeting") for p in ("hawk", "nova", "echo")),
+            meeting_chat=tuple(ChatMessage(speaker, text) for speaker, text in chat),
+        )
+
+    def test_the_meeting_chat_travels_strictly(self) -> None:
+        raw = json.loads((FIXTURES / "decision_request.json").read_text(encoding="utf-8"))
+        raw["observation"]["meeting_chat"] = [{"speaker": "hawk", "text": "Sherlock, where were you?"}]
+        self.assertEqual("hawk", decode(json.dumps(raw)).observation.meeting_chat[0].speaker)
+        raw["observation"]["meeting_chat"] = [{"speaker": "hawk", "text": "hi", "role": "IMPOSTOR"}]
+        with self.assertRaisesRegex(ProtocolError, "unknown fields"):
+            decode(json.dumps(raw))
+
+    def test_an_accused_agent_defends_itself_by_name(self) -> None:
+        action = fallback_action(self._meeting(("hawk", "I think Sherlock is sus, he was alone.")), {}, set())
+        self.assertEqual(ActionKind.SAY, action.action)
+        self.assertTrue(action.text.startswith("hawk, it wasn't me"), action.text)
+
+    def test_an_agent_takes_a_side_on_someone_elses_accusation(self) -> None:
+        chat = ("hawk", "I saw nova near the body, nova is sus.")
+        agree = fallback_action(self._meeting(chat), {"nova": {"suspicion": 0.5, "evidence_ids": []}}, set())
+        self.assertEqual("I agree with hawk about nova.", agree.text)
+        doubt = fallback_action(self._meeting(chat), {"nova": {"suspicion": 0.2, "evidence_ids": []}}, set())
+        self.assertEqual("hawk, what makes you sure about nova?", doubt.text)
+
+    def test_an_impostor_never_piles_onto_its_partner(self) -> None:
+        action = fallback_action(self._meeting(("hawk", "nova is sus."), role=Role.IMPOSTOR, partners=("nova",)), {}, set())
+        self.assertNotIn("agree", action.text.lower())
+
+    def test_no_line_twice_then_silence(self) -> None:
+        said: list[tuple[str, str]] = []
+        for _ in range(5):
+            action = fallback_action(self._meeting(*said), {}, set())
+            if action.action is ActionKind.WAIT:
+                break
+            said.append(("sherlock", action.text))
+        self.assertEqual(len(said), len({text for _, text in said}))
+        self.assertIs(ActionKind.WAIT, action.action)
+
+    def test_the_model_sees_the_conversation_and_its_own_lines(self) -> None:
+        llm = fake_llm(first_legal_answer)
+        observation = self._meeting(("hawk", "Sherlock, where were you?"), ("sherlock", "In admin."))
+        payload = {"match_id": "m", "match_seed": 1, "agent_id": "sherlock", "ego": "sherlock", "players": ["hawk", "nova", "echo"],
+                   "source": "test", "observation": to_dict(observation)}
+        asyncio.run(PipelineAgentRunner(llm).decide(agent_id="sherlock", session_key="s", payload=payload))
+        [messages] = llm._backend.calls
+        trusted = next(m for m in messages if isinstance(m, TrustedInstructionMessage))
+        self.assertIn("This is a meeting", trusted.content)
+        context = next(r for m in messages if isinstance(m, UntrustedContextMessage) for r in m.records if r.record_id == "observation:self")
+        content = json.loads(context.content)
+        self.assertEqual(["In admin."], content["you_said"])
+        self.assertEqual("hawk", content["meeting_chat"][0]["speaker"])
+
+    def test_a_called_off_kill_is_reassessed_early(self) -> None:
+        from among_us.scheduler import priority
+
+        self.assertEqual(1, priority(task_observation("a", reason="reassess: kill called off, 2 witnesses")))

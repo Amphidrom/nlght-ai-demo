@@ -164,6 +164,16 @@ The orchestrator streams `action` `{request_id, …SemanticAction}`: an answer t
 `request_id: null` an action on the agent's own initiative, which the server checks against the game
 as it is at that moment and judges with an `action_result` without `request_id`.
 
+**Meetings as a conversation.** In meetings and votes every observation carries `meeting_chat`: the
+meeting's chat so far, word for word, as it stands on everyone's screen (what the agent *keeps* of it
+is still its memory's business). The decide step then adds meeting rules to the instructions —
+answer whoever addressed or accused you, weigh others' claims against your memories, agree or push
+back with a reason, ask pointed questions, change your mind openly, never repeat yourself (the
+context lists `you_said`), and WAIT when there is nothing new. Without the model, the policy does
+the same in small: it defends itself by name when accused, accuses with evidence, sides with or
+questions someone else's accusation (an impostor never piles onto its partner), asks, and falls
+silent instead of repeating a line.
+
 **Initiative.** After every observation, `among_us/initiative.py` asks — without the model — whether a
 belief has grown strong enough to act on before the game asks. A crewmate whose suspicion of a
 living player reaches its ego's `judgement.call_meeting_at` calls an emergency meeting, citing the

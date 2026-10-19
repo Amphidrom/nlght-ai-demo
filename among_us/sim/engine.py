@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 
 from among_us.domain import GameEvent
 from among_us.protocol import (
+    ChatMessage,
     ActionKind,
     ActionResult,
     EventKind,
@@ -159,6 +160,7 @@ class SimEngine:
         self._vanish_ticks = vanish_ticks
         self._ability_cooldown_ticks = ability_cooldown
         self._meeting_rounds = meeting_rounds
+        self._meeting_chat: list[ChatMessage] = []
         self._max_ticks = max_ticks
         #: Shared by the impostor team, as in the real game.
         self._sabotage_cooldown = sabotage_cooldown
@@ -291,6 +293,7 @@ class SimEngine:
             roster=tuple(sorted(self._players)),
             alarm=self._sabotage[0] if self._sabotage and self._sabotage[0] in CRITICAL_SABOTAGES else None,
             outages=tuple(sorted({self._sabotage[0]} - CRITICAL_SABOTAGES)) if self._sabotage else (),
+            meeting_chat=tuple(self._meeting_chat) if in_meeting else (),
         )
 
     def legal_actions(self, pid: str) -> tuple[LegalAction, ...]:
@@ -347,6 +350,7 @@ class SimEngine:
         if self.phase is Phase.MEETING:
             self._statements[player.player_id] = action
             if action.action is ActionKind.SAY and action.text:
+                self._meeting_chat.append(ChatMessage(player.player_id, action.text))
                 self._emit(
                     "CHAT", EventKind.CHAT, self.alive(), room=None, actor=player.player_id,
                     text=action.text, evidence_ids=action.evidence_ids, exclude_actor=False,
@@ -577,6 +581,7 @@ class SimEngine:
             self._emit("SABOTAGE_RESOLVED", EventKind.SABOTAGE_FIXED, self.alive(), room=None, text="meeting")
         self.phase = Phase.MEETING
         self._round = 0
+        self._meeting_chat = []
         self._statements = {}
         self._votes = {}
         for p in self._players.values():

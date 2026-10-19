@@ -52,7 +52,7 @@ def priority(observation: Observation) -> int:
     if observation.phase in (Phase.MEETING, Phase.VOTING):
         return 0
     reason = observation.decision_reason
-    if reason.startswith("observed:"):
+    if reason.startswith(("observed:", "reassess:")):
         return 1
     if reason == "opportunity":
         return 2

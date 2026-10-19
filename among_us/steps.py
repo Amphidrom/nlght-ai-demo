@@ -92,6 +92,18 @@ Answer with one JSON object and nothing else:
 {"action": "<ACTION>", "target": "<target or null>", "text": "<what you say, only for SAY>",
  "goal": "<short goal>", "evidence_ids": ["<event_id>", ...],
  "claims": [{"player": "<player id>", "room": "<room>", "tick": <tick>}, ...]}"""
+#: Added to the rules in meetings and votes: the table is a conversation, not a round of speeches.
+_MEETING_RULES = """This is a meeting. meeting_chat is everything said so far, word for word; you_said is what you
+said yourself. Make it a conversation:
+- React to what was just said. Answer whoever addressed or accused you, by name. If you are accused, defend
+  yourself with what you remember, and say where you were.
+- Weigh the others' claims against your own memories: agree when they fit, push back when they contradict what
+  you saw, and say why. Consider that a confident speaker may be the impostor.
+- Ask a pointed question when a claim is vague or does not add up: where were you, who were you with, why there.
+- Change your mind openly when someone gives you a good reason; hold your view when they do not.
+- Never repeat yourself. One or two short sentences, addressed to someone by name.
+- If you have nothing new to add right now, WAIT.
+- When voting, vote for the player your memories and the discussion point to, or skip when it is unclear."""
 MAX_CLAIMS = 5
 #: Room names differ between the simulation and the real game, so a claim's
 #: room is checked for form only; the evaluation decides whether it is true.
@@ -278,7 +290,8 @@ class AmongUsDecideStep(StepBase):
             return StepResult(ctx=ctx, verdict="decided")
 
         ego = load_ego(state["ego"])
-        instructions = f"{ego.persona}\n\n{_RULES}\n\nKeep anything you say under {ego.voice.max_words} words."
+        meeting = _MEETING_RULES if observation.phase in (Phase.MEETING, Phase.VOTING) else ""
+        instructions = f"{ego.persona}\n\n{_RULES}\n\n{meeting}\n\nKeep anything you say under {ego.voice.max_words} words."
         records = self._context(state, observation)
         context_size = {"records": len(records), "chars": sum(len(r.content) for r in records)}
         request = UserMessage(json.dumps({
@@ -321,6 +334,10 @@ class AmongUsDecideStep(StepBase):
                 "visible_players": [to_dict(p) for p in observation.visible_players],
                 "visible_bodies": [to_dict(b) for b in observation.visible_bodies],
                 "legal_actions": [to_dict(a) for a in observation.legal_actions],
+                **({
+                    "meeting_chat": [to_dict(m) for m in observation.meeting_chat],
+                    "you_said": [m.text for m in observation.meeting_chat if m.speaker == agent],
+                } if observation.phase in (Phase.MEETING, Phase.VOTING) else {}),
             },
             source="among_us_observation",
             item_id=f"tick:{observation.tick}",

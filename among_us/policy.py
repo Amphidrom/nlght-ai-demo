@@ -14,6 +14,13 @@ from among_us.protocol import ActionKind, EventKind, Observation, Phase, Role, S
 from among_us.sim.map import ROOMS, SABOTAGE_ROOMS, TASKS
 
 _HUNTING_GROUNDS = ("electrical", "admin", "medbay", "storage", "navigation", "weapons")
+_ACCUSING = ("sus", "suspect", "saw", "kill", "vote", "impostor", "lying", "liar")
+_QUESTIONS = (
+    "Where was everyone when it happened?",
+    "Who found the body, and where exactly?",
+    "Can anyone vouch for where they were?",
+)
+_PRIOR = 0.2
 
 
 def fallback_action(observation: Observation, beliefs: dict[str, dict[str, Any]], recalled_ids: set[str]) -> SemanticAction:
@@ -25,12 +32,7 @@ def fallback_action(observation: Observation, beliefs: dict[str, dict[str, Any]]
         return sorted(t for k, t in legal if k is kind and t is not None)
 
     if observation.phase is Phase.MEETING:
-        suspect = most_suspected(beliefs, alive=[p.player_id for p in observation.visible_players])
-        if me.role is Role.CREWMATE and suspect:
-            cited = sorted(set(beliefs[suspect]["evidence_ids"]) & recalled_ids)
-            if cited:
-                return SemanticAction(agent, ActionKind.SAY, text=f"I suspect {suspect}.", goal="ACCUSE", evidence_ids=tuple(cited))
-        return SemanticAction(agent, ActionKind.SAY, text="I have nothing solid to report.", goal="INFORM")
+        return _meeting_turn(observation, beliefs, recalled_ids)
 
     if observation.phase is Phase.VOTING:
         candidates = [t for t in legal_targets(ActionKind.VOTE) if t not in me.known_impostors]
@@ -88,4 +90,46 @@ def fallback_action(observation: Observation, beliefs: dict[str, dict[str, Any]]
     rooms = [room for room in ROOMS if (ActionKind.MOVE_TO, room) in legal]
     if rooms:
         return SemanticAction(agent, ActionKind.MOVE_TO, target=rooms[observation.tick % len(rooms)], goal="PATROL")
+    return SemanticAction(agent, ActionKind.WAIT)
+
+
+def _meeting_turn(observation: Observation, beliefs: dict[str, dict[str, Any]], recalled_ids: set[str]) -> SemanticAction:
+    """A meeting line without the model: answer an accusation, accuse with evidence, take a side, or ask.
+
+    Never the same line twice in one meeting; with nothing new to say, wait.
+    """
+
+    me, agent = observation.self_state, observation.agent_id
+    chat = observation.meeting_chat
+    said = {m.text for m in chat if m.speaker == agent}
+    alive = [p.player_id for p in observation.visible_players]
+    partners = set(me.known_impostors)
+
+    def accuses(text: str, player: str) -> bool:
+        lower = text.lower()
+        return player in lower and any(word in lower for word in _ACCUSING)
+
+    lines: list[tuple[str, str, tuple[str, ...]]] = []
+    accusers = [m.speaker for m in chat if m.speaker != agent and accuses(m.text, agent)]
+    if accusers:
+        lines.append((f"{accusers[-1]}, it wasn't me. I was in {me.room.replace('_', ' ')}.", "DEFEND", ()))
+    suspect = most_suspected(beliefs, alive=alive)
+    if me.role is Role.CREWMATE and suspect:
+        cited = tuple(sorted(set(beliefs[suspect]["evidence_ids"]) & recalled_ids))
+        if cited:
+            lines.append((f"I suspect {suspect}. I saw something.", "ACCUSE", cited))
+    for message in reversed(chat):
+        named = [p for p in alive if p != message.speaker and p not in partners and accuses(message.text, p)]
+        if message.speaker == agent or not named:
+            continue
+        target = named[0]
+        if beliefs.get(target, {}).get("suspicion", _PRIOR) > _PRIOR:
+            lines.append((f"I agree with {message.speaker} about {target}.", "AGREE", ()))
+        else:
+            lines.append((f"{message.speaker}, what makes you sure about {target}?", "QUESTION", ()))
+        break
+    lines.append((_QUESTIONS[(len(chat) + len(agent)) % len(_QUESTIONS)], "QUESTION", ()))
+    for text, goal, evidence in lines:
+        if text not in said:
+            return SemanticAction(agent, ActionKind.SAY, text=text, goal=goal, evidence_ids=evidence)
     return SemanticAction(agent, ActionKind.WAIT)
