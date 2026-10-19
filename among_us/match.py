@@ -22,8 +22,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from among_us.ego import ego_ids
+from among_us.ego import load_ego
 from among_us.environment import GameEnvironment, GroundTruth
+from among_us.models import ModelCatalog
 from among_us.protocol import (
     ActionKind,
     Observation,
@@ -74,17 +75,25 @@ class AgentRunner(Protocol):
 
 
 class WorkflowAgentRunner:
-    """One agent turn = one run of the seeded workflow, in the agent's own session."""
+    """One agent turn = one run of the seeded workflow, in the agent's own session.
 
-    def __init__(self, container: Any, *, model: str | None = None) -> None:
+    The turn runs on the provider and model in the payload (``model_provider``, ``model``); without them, on the
+    one the agent's ego names or the platform default (``models.ModelCatalog``).
+    """
+
+    def __init__(self, container: Any, *, catalog: ModelCatalog | None = None) -> None:
         self._container = container
-        self._model = model
+        self._catalog = catalog
 
     async def decide(
         self, *, agent_id: str, session_key: str, payload: dict[str, Any], mode: str = "ego",
     ) -> dict[str, Any]:
         cid = str(uuid.uuid4())
-        body = {**payload, **({"model": self._model} if self._model else {})}
+        body = dict(payload)
+        if "model_provider" not in body and self._catalog is not None:
+            choice = self._catalog.resolve(load_ego(str(body.get("ego", ""))))
+            if choice is not None:
+                body.update(model_provider=choice.provider, model=choice.model)
         invocation = await build_invocation(
             self._container, workflow_name=MEMORY_MODES[mode], payload=body,
             context=_context(cid), session_key=session_key, stream=False,
@@ -180,6 +189,8 @@ class MatchRecord:
     error: str | None = None
     entries: list[dict[str, Any]] = field(default_factory=list)
     ground_truth: GroundTruth | None = None
+    #: Every player's team role, reported by the real game when it ends (no full ground truth there).
+    roles: dict[str, str] = field(default_factory=dict)
     _changed: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
 
     def append(self, entry: dict[str, Any]) -> None:
@@ -215,6 +226,7 @@ class MatchRecord:
             "modes": {player: self.mode_of(player) for player in self.egos},
             "status": self.status,
             "winner": self.winner,
+            "roles": self.roles,
             "error": self.error,
             "decisions": sum(1 for e in self.entries if e["type"] == "decision"),
             "scheduling": dict(Counter(e.get("scheduling", "unknown") for e in self.entries if e["type"] == "decision")),
@@ -253,7 +265,6 @@ async def run_match(
     try:
         hello = await environment.connect()
         players = list(hello.players)
-        _assign_egos(record, players)
         record.append({"type": "hello", **to_dict(hello)})
         for _ in range(max_iterations):
             for _ in range(len(players) * 3):
@@ -274,28 +285,6 @@ async def run_match(
         record.ground_truth = environment.ground_truth()
         await environment.close()
     return record
-
-
-def _assign_egos(record: MatchRecord, players: list[str]) -> None:
-    """Give every agent the bridge introduced an ego: its own name if that is an ego, else a free one.
-
-    The nlght Impostor server names its bots after egos, so this is usually the identity. Names that
-    are egos are served first, so a later bot cannot take an ego another bot is named after.
-    """
-
-    known = set(ego_ids())
-    taken = {record.egos[p] for p in players if p in record.egos}
-    for player in players:
-        if player not in record.egos and player in known and player not in taken:
-            record.egos[player] = player
-            taken.add(player)
-    free = [ego for ego in sorted(known) if ego not in taken]
-    for player in players:
-        if player in record.egos:
-            continue
-        if not free:
-            raise ValueError(f"more agents than egos: no ego left for {player}")
-        record.egos[player] = free.pop(0)
 
 
 async def _decide_batch(
@@ -329,33 +318,52 @@ async def _decide_batch(
     # their actions in seat order so the outcome does not depend on latency.
     decided = await scheduler.run(batch, turn)
     for observation, result, mode in sorted(decided, key=lambda item: item[0].agent_id):
-        idle = SemanticAction(
-            observation.agent_id,
-            ActionKind.SKIP_VOTE if observation.phase is Phase.VOTING else ActionKind.WAIT,
-        )
-        try:
-            action = action_from_dict(result["action"])
-        except (KeyError, ProtocolError, TypeError):
-            action = idle
-        if action.agent_id != observation.agent_id:
-            action = idle
+        action = chosen_action(observation, result)
+        idle = idle_action(observation)
         outcome = await environment.submit(action)
         if not outcome.accepted:
             # The game refused it (it may have moved on since the observation):
             # stand still rather than retry a stale decision.
             await environment.submit(idle)
         record.append({
-            "type": "decision",
-            "agent_id": observation.agent_id,
-            "ego": record.egos[observation.agent_id],
-            "memory_mode": record.mode_of(observation.agent_id),
-            "tick": observation.tick,
-            "phase": observation.phase.value,
-            "reason": observation.decision_reason,
-            "scheduling": mode,
-            "perceived": [e.event_id for e in observation.events],
-            "result": result,
-            "action": to_dict(action),
+            **decision_entry(record, observation, result, mode, action),
             "accepted": outcome.accepted,
             "rejection": outcome.reason,
         })
+
+
+def idle_action(observation: Observation) -> SemanticAction:
+    return SemanticAction(
+        observation.agent_id,
+        ActionKind.SKIP_VOTE if observation.phase is Phase.VOTING else ActionKind.WAIT,
+    )
+
+
+def chosen_action(observation: Observation, result: dict[str, Any]) -> SemanticAction:
+    """The action an agent turn chose, or standing still when it chose none for this agent."""
+
+    try:
+        action = action_from_dict(result["action"])
+    except (KeyError, ProtocolError, TypeError):
+        return idle_action(observation)
+    return action if action.agent_id == observation.agent_id else idle_action(observation)
+
+
+def decision_entry(
+    record: MatchRecord, observation: Observation, result: dict[str, Any], mode: str, action: SemanticAction,
+) -> dict[str, Any]:
+    """One decision in the match log, as the evaluation reads it."""
+
+    return {
+        "type": "decision",
+        "agent_id": observation.agent_id,
+        "ego": record.egos[observation.agent_id],
+        "memory_mode": record.mode_of(observation.agent_id),
+        "tick": observation.tick,
+        "phase": observation.phase.value,
+        "reason": observation.decision_reason,
+        "scheduling": mode,
+        "perceived": [e.event_id for e in observation.events],
+        "result": result,
+        "action": to_dict(action),
+    }

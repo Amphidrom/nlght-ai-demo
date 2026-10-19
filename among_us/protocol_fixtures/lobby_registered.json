@@ -1,0 +1,17 @@
+{
+  "protocol": 2,
+  "lobby_id": "3f2a9c1b7d40",
+  "token": "example-token",
+  "agents": [
+    {
+      "agent_id": "archive",
+      "name": "Archive",
+      "ego": "archive"
+    },
+    {
+      "agent_id": "sherlock",
+      "name": "Sherlock",
+      "ego": "sherlock"
+    }
+  ]
+}

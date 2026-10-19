@@ -1,0 +1,12 @@
+{
+  "type": "game_ended",
+  "protocol": 2,
+  "winner": "crew",
+  "reason": "CrewmatesByVote",
+  "roles": {
+    "archive": "CREWMATE",
+    "bubbles": "IMPOSTOR",
+    "host": "CREWMATE",
+    "sherlock": "CREWMATE"
+  }
+}

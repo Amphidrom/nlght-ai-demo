@@ -1,0 +1,11 @@
+{
+  "type": "game_started",
+  "protocol": 2,
+  "map": "skeld",
+  "players": [
+    "archive",
+    "bubbles",
+    "host",
+    "sherlock"
+  ]
+}

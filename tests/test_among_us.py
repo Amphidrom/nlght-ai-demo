@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from among_us.adapter import _match_options
 from among_us.beliefs import update_beliefs
 from among_us.ego import InvalidEgo, ego_ids, file_schema, load_ego, parse_ego
-from among_us.environment import BridgeEnvironment, SimEnvironment
+from among_us.environment import SimEnvironment
 from among_us.evaluation import differentiation_probe, evaluate
 from among_us.match import MatchRecord, PipelineAgentRunner, run_match, session_key
 from among_us.memory import consolidate, empty_store, recall
@@ -20,21 +20,21 @@ from among_us.perception import PerceptionViolation, perceive
 from among_us.policy import fallback_action
 from among_us.protocol import (
     ActionKind,
-    ActionResult,
-    DecisionRequest,
     EventKind,
-    Hello,
     LegalAction,
-    MatchEnd,
+    LobbyRegistered,
     Observation,
     ObservedEvent,
     Phase,
     ProtocolError,
     Role,
+    SeatedAgent,
     SelfState,
     SemanticAction,
     decode,
     encode,
+    registered_to_dict,
+    registration_from_dict,
     to_dict,
 )
 from among_us.scheduler import DecisionScheduler, SchedulerConfig
@@ -106,11 +106,24 @@ def crew_observation(**overrides) -> Observation:
 
 
 class ProtocolTests(unittest.TestCase):
+    SESSION_MESSAGES = ("game_started", "observation", "decision_request", "action", "action_result",
+                        "agent_left", "game_ended")
+
     def test_every_fixture_round_trips(self) -> None:
-        for name in ("hello", "decision_request", "action", "action_result", "match_end"):
+        for name in self.SESSION_MESSAGES:
             raw = (FIXTURES / f"{name}.json").read_text(encoding="utf-8")
             message = decode(raw)
             self.assertEqual(json.loads(raw), json.loads(encode(message)), name)
+
+    def test_the_registration_fixtures_round_trip(self) -> None:
+        raw = json.loads((FIXTURES / "lobby_registration.json").read_text(encoding="utf-8"))
+        registration = registration_from_dict(raw)
+        self.assertEqual(raw, {"protocol": 2, **to_dict(registration)})
+        registered = json.loads((FIXTURES / "lobby_registered.json").read_text(encoding="utf-8"))
+        agents = tuple(SeatedAgent(**a) for a in registered["agents"])
+        self.assertEqual(registered, registered_to_dict(LobbyRegistered(registered["lobby_id"], registered["token"], agents)))
+        for agent in agents:
+            self.assertEqual(agent.name.lower(), agent.agent_id)
 
     def test_an_observation_that_discloses_a_role_is_refused(self) -> None:
         raw = (FIXTURES / "invalid_leaky_observation.json").read_text(encoding="utf-8")
@@ -119,9 +132,24 @@ class ProtocolTests(unittest.TestCase):
 
     def test_version_and_type_are_checked(self) -> None:
         with self.assertRaises(ProtocolError):
-            decode(json.dumps({"type": "hello", "protocol": 2, "game_version": "x", "source": "y"}))
+            decode(json.dumps({"type": "game_started", "protocol": 1, "map": "skeld"}))
         with self.assertRaises(ProtocolError):
-            decode(json.dumps({"type": "teleport", "protocol": 1}))
+            decode(json.dumps({"type": "teleport", "protocol": 2}))
+        with self.assertRaises(ProtocolError):
+            registration_from_dict({"protocol": 2, "game_code": "X", "game_version": "v", "source": "s", "count": "5"})
+
+    def test_a_decision_request_needs_an_id_and_a_deadline(self) -> None:
+        raw = json.loads((FIXTURES / "decision_request.json").read_text(encoding="utf-8"))
+        for broken in ({**raw, "deadline_seconds": 0}, {k: v for k, v in raw.items() if k != "request_id"}):
+            with self.assertRaises(ProtocolError):
+                decode(json.dumps(broken))
+
+    def test_an_action_on_the_agents_own_initiative_has_no_request(self) -> None:
+        message = decode(json.dumps({"type": "action", "protocol": 2, "request_id": None, "agent_id": "sherlock",
+                                     "action": "CALL_MEETING", "target": None, "text": None, "goal": "ACCUSE",
+                                     "evidence_ids": []}))
+        self.assertIsNone(message.request_id)
+        self.assertEqual(ActionKind.CALL_MEETING, message.action.action)
 
 
 class SimulationTests(unittest.TestCase):
@@ -377,40 +405,8 @@ class EvaluationTests(unittest.TestCase):
         self.assertGreater(len(set(coverage.values())), 1)
 
 
-class BridgeEnvironmentTests(unittest.IsolatedAsyncioTestCase):
-    async def test_speaks_protocol_v1_over_ndjson(self) -> None:
-        received: list[str] = []
-        observation = decode((FIXTURES / "decision_request.json").read_text(encoding="utf-8")).observation
-
-        async def bridge(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-            writer.write((encode(Hello("2026.3.31", "test-bridge", ("sherlock",))) + "\n").encode())
-            writer.write(b'{"type":"decision_request","protocol":1,"observation":{"agent_id":"x","role":"IMPOSTOR"}}\n')
-            writer.write((encode(DecisionRequest(observation)) + "\n").encode())
-            await writer.drain()
-            line = await reader.readline()
-            received.append(line.decode())
-            writer.write((encode(ActionResult("sherlock", True)) + "\n").encode())
-            writer.write((encode(MatchEnd("crew", "test")) + "\n").encode())
-            await writer.drain()
-            writer.close()
-
-        server = await asyncio.start_server(bridge, "127.0.0.1", 0)
-        port = server.sockets[0].getsockname()[1]
-        async with server:
-            environment = BridgeEnvironment("127.0.0.1", port, decision_wait=2)
-            hello = await environment.connect()
-            self.assertEqual(("sherlock",), hello.players)
-            decisions = await environment.next_decisions()
-            self.assertEqual(["sherlock"], [o.agent_id for o in decisions])
-            result = await environment.submit(SemanticAction("sherlock", ActionKind.WAIT))
-            self.assertTrue(result.accepted)
-            self.assertEqual("action", json.loads(received[0])["type"])
-            for _ in range(20):
-                if await environment.advance():
-                    break
-                await asyncio.sleep(0.05)
-            self.assertEqual("crew", (await environment.advance()).winner)
-            await environment.close()
+def _sql_only(sql: str) -> str:
+    return "\n".join(line for line in sql.splitlines() if not line.lstrip().startswith("--"))
 
 
 class WorkflowSeedTests(unittest.TestCase):
@@ -425,9 +421,10 @@ class WorkflowSeedTests(unittest.TestCase):
         self.assertEqual(6, len(seeded))
         self.assertEqual(set(), seeded - set(getattr(step_registry, "_registry")))
 
-    def test_only_the_decide_steps_select_a_model(self) -> None:
+    def test_no_step_pins_a_model_provider(self) -> None:
+        # Every turn names its agent's provider and model; a pinned one would win over it.
         seed = self._seed()
-        self.assertEqual(2, seed.count('"model_provider":"ollama"'))
+        self.assertNotIn("model_provider", _sql_only(seed))
         self.assertEqual(2, seed.count("'decide', 'among_us_decide'"))
 
     def test_baseline_differs_from_the_ego_workflow_only_in_memory(self) -> None:
@@ -450,11 +447,10 @@ class WorkflowSeedTests(unittest.TestCase):
 
 
 class AdapterOptionTests(unittest.TestCase):
-    def test_bridge_port_is_restricted_to_the_bridge_range(self) -> None:
-        with self.assertRaises(HTTPException):
-            _match_options({"environment": "bridge", "players": {"p1": "sherlock"}, "bridge_port": 5432})
-        options = _match_options({"environment": "bridge", "players": {"p1": "sherlock"}})
-        self.assertEqual("127.0.0.1", options["bridge_host"])
+    def test_the_real_game_is_not_started_as_a_match(self) -> None:
+        with self.assertRaisesRegex(HTTPException, "") as caught:
+            _match_options({"environment": "bridge"})
+        self.assertIn("!bots", caught.exception.detail)
 
     def test_simulated_match_needs_four_to_fifteen_known_egos(self) -> None:
         with self.assertRaises(HTTPException):
@@ -763,30 +759,6 @@ class ServerContractTests(unittest.TestCase):
         self.assertIn((result["action"]["action"], result["action"]["target"]), legal)
         # Humans in the roster are suspects too, not only the agents the orchestrator runs.
         self.assertIn("host", result["beliefs"])
-
-    def test_egos_follow_the_bot_names(self) -> None:
-        from among_us.match import _assign_egos
-
-        record = MatchRecord("m", 1, {}, "bridge")
-        _assign_egos(record, ["sherlock", "bubbles", "ada"])
-        self.assertEqual("sherlock", record.egos["sherlock"])
-        self.assertEqual("bubbles", record.egos["bubbles"])
-        self.assertNotIn(record.egos["ada"], {"sherlock", "bubbles"})
-        with self.assertRaises(ValueError):
-            _assign_egos(MatchRecord("m", 1, {}, "bridge"), [f"bot{i}" for i in range(16)])
-
-    def test_a_bot_named_like_an_ego_keeps_it(self) -> None:
-        from among_us.match import _assign_egos
-
-        # Found in the first end-to-end run: "dax" took the free ego "echo" before the bot named Echo.
-        record = MatchRecord("m", 1, {}, "bridge")
-        _assign_egos(record, ["ada", "bolt", "cleo", "dax", "echo"])
-        self.assertEqual("echo", record.egos["echo"])
-        self.assertEqual(5, len(set(record.egos.values())))
-
-    def test_a_bridge_match_needs_no_player_map(self) -> None:
-        options = _match_options({"environment": "bridge"})
-        self.assertEqual({}, options["assignment"])
 
 
 class ImpostorModeTests(unittest.TestCase):

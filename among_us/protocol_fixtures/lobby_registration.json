@@ -1,0 +1,10 @@
+{
+  "protocol": 2,
+  "game_code": "REDSUS",
+  "game_version": "2026.7.15",
+  "source": "nlght-ai-impostor",
+  "count": 2,
+  "players": [
+    "Host"
+  ]
+}

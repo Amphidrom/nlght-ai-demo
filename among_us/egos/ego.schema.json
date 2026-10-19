@@ -84,7 +84,7 @@
     },
     "Judgement": {
       "additionalProperties": false,
-      "description": "How recalled evidence turns into suspicion (beliefs.update_beliefs).",
+      "description": "How recalled evidence turns into suspicion (beliefs.update_beliefs), and suspicion into action (initiative).",
       "properties": {
         "suspicion_bias": {
           "description": "Multiplier on incriminating evidence; exonerating evidence is not scaled.",
@@ -92,12 +92,53 @@
           "minimum": 0.0,
           "title": "Suspicion Bias",
           "type": "number"
+        },
+        "call_meeting_at": {
+          "description": "Suspicion of one player at which a crewmate calls an emergency meeting on its own, between decisions (initiative.initiative_action). Above 1, never.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Call Meeting At",
+          "type": "number"
         }
       },
       "required": [
-        "suspicion_bias"
+        "suspicion_bias",
+        "call_meeting_at"
       ],
       "title": "Judgement",
+      "type": "object"
+    },
+    "ModelSelection": {
+      "additionalProperties": false,
+      "description": "Which model the agent decides with (models.ModelCatalog.resolve). Not cognition but deployment: optional, and\nthe operator can choose differently per agent in the admin UI.",
+      "properties": {
+        "provider": {
+          "description": "Name of a model provider configured in platform.yaml.",
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Provider",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Model at that provider, as its model list names it; omitted: the provider's default model.",
+          "title": "Name"
+        }
+      },
+      "required": [
+        "provider"
+      ],
+      "title": "ModelSelection",
       "type": "object"
     },
     "Retention": {
@@ -175,6 +216,17 @@
     },
     "voice": {
       "$ref": "#/$defs/Voice"
+    },
+    "model": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ModelSelection"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   },
   "required": [

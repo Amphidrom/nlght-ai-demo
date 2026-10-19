@@ -2,6 +2,10 @@
 
 perceive → remember → believe → decide → validate
 
+An observation update (``observe_only``) runs the same turn up to the decide
+step, which then ends it: memory and beliefs are written, the game is not
+answered — but the agent may act on its own initiative (``initiative.py``).
+
 Every agent runs in its own session (``among-us:{match}:{agent}``), so its
 memories and beliefs live in its own Hive Mind coordinator and no agent can
 read another's. Memory holds only what the agent perceived; the model's
@@ -18,6 +22,7 @@ from typing import Any, ClassVar
 
 from among_us.beliefs import update_beliefs
 from among_us.ego import EgoProfile, UnknownEgo, load_ego
+from among_us.initiative import INITIATIVE_SLOT, initiative_action
 from among_us.memory import consolidate, empty_store, recall
 from among_us.perception import PerceptionViolation, perceive
 from among_us.policy import fallback_action
@@ -138,6 +143,7 @@ class AmongUsPerceiveStep(StepBase):
             source=str(payload.get("source", "sim")),
             players=players,
             offline=bool(payload.get("offline", False)),
+            observe_only=bool(payload.get("observe_only", False)),
             observation=to_dict(observation),
             perceived=[e.event_id for e in events],
         )
@@ -249,6 +255,23 @@ class AmongUsDecideStep(StepBase):
 
     async def run(self, ctx: WorkflowStepContext) -> StepResult:
         state = _state(ctx)
+        if state.get("observe_only"):
+            # An observation update writes memory and beliefs; the game asks nothing. The agent may still act
+            # on its own when a belief has grown strong enough.
+            store = ctx.store_coordinator
+            beliefs = state.get("beliefs", {})
+            initiative, acted, why = initiative_action(
+                observation_from_dict(state["observation"]), beliefs, state.get("recalled", []), load_ego(state["ego"]),
+                store.get_slot(INITIATIVE_SLOT, dict) if store is not None else {},
+            )
+            if initiative is not None and store is not None:
+                store.set_slot(INITIATIVE_SLOT, acted)
+            result = {"observed": True, "memory": state.get("memory", {}), "beliefs": beliefs, "ego": state["ego"],
+                      "recalled": [{"event_id": m["event_id"], "kind": m["kind"], "details": m["details"],
+                                    "certainty": m["certainty"]} for m in state.get("recalled", [])],
+                      "initiative": to_dict(initiative) if initiative else None, "initiative_reason": why}
+            await ctx.emitter.emit(Signal("assistant", json.dumps(result, ensure_ascii=False), kind="result"))
+            return StepResult(ctx=ctx, verdict="done")
         observation = observation_from_dict(state["observation"])
         if state.get("offline") or len(observation.legal_actions) <= 1 or ctx.llm is None:
             _set_state(ctx, proposal=None, decided_by="policy")

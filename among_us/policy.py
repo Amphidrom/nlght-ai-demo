@@ -80,8 +80,9 @@ def fallback_action(observation: Observation, beliefs: dict[str, dict[str, Any]]
     tasks = legal_targets(ActionKind.DO_TASK)
     if tasks:
         return SemanticAction(agent, ActionKind.DO_TASK, target=tasks[0], goal="TASK")
+    # Task rooms are known for the simulated ship only; the real game names its tasks differently.
     for task in me.tasks_remaining:
-        if (ActionKind.MOVE_TO, TASKS[task]) in legal:
+        if task in TASKS and (ActionKind.MOVE_TO, TASKS[task]) in legal:
             return SemanticAction(agent, ActionKind.MOVE_TO, target=TASKS[task], goal="TASK")
     # Nothing left to do: wander deterministically so the agent stays observable.
     rooms = [room for room in ROOMS if (ActionKind.MOVE_TO, room) in legal]

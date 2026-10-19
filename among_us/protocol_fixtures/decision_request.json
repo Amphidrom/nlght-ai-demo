@@ -1,6 +1,8 @@
 {
   "type": "decision_request",
-  "protocol": 1,
+  "protocol": 2,
+  "request_id": "sherlock-r0001",
+  "deadline_seconds": 30.0,
   "observation": {
     "agent_id": "sherlock",
     "tick": 4,

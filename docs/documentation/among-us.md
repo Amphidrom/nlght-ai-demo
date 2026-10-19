@@ -2,15 +2,15 @@
 
 nlght-ai agents with an ego and an imperfect memory play Among Us. The first vertical slice
 runs against a deterministic simulation; the nlght Impostor server (repository `nlght-ai-impostor`)
-connects the same protocol to the real game.
+brings the same agents into the real game, one registered lobby at a time.
 
 ## Architecture
 
 ```
-GameEnvironment ── SimEnvironment  (among_us/sim, seed-deterministic)
-                └─ BridgeEnvironment (NDJSON over 127.0.0.1:47100 → nlght Impostor server)
+SimEnvironment (among_us/sim, seed-deterministic) ── run_match (among_us/match.py)
+nlght Impostor server ── one session per lobby ──── LobbyRegistry (among_us/lobby.py)
       │ Observation per agent (visibility-filtered) · SemanticAction · ActionResult
-Match orchestrator (among_us/match.py, HTTP adapter among_us/adapter.py)
+HTTP adapter among_us/adapter.py
       │ one workflow run per agent and decision point, session "among-us:{match}:{agent}"
 Workflow among_us_agent_turn (seed/08_among_us.sql)
       perceive → remember → believe → decide (model) → validate
@@ -119,24 +119,110 @@ process, so this demo is not affected by the license).
   same protocol. Without an answer in time, the bot's built-in heuristic decides.
 - **Vision is filtered at the source.** A network client receives everyone's position; the bot
   reports only what its own character could see, and `perception.py` re-checks it here.
-- **Bots are named after egos** (`Sherlock`, `Bubbles`, …), so the orchestrator assigns each its ego
-  by name. Skeld rooms use the simulation's room names, so the dashboard map and location claims
-  work unchanged.
+- **The orchestrator names the bots.** When the host types `!bots N`, the server registers the lobby
+  here before a single bot exists; the registry picks N egos that are free in this lobby and whose
+  names no player in it uses, and the server spawns exactly those bots under exactly those names
+  (`agent_id` is always the lower-cased name). Skeld rooms use the simulation's room names, so the
+  dashboard map and location claims work unchanged.
 - `among_us/protocol_fixtures/server_decision_request.json` is a message the server produced in its
   test suite; `tests/test_among_us.py` holds the contract.
 
-A bridge match starts after the agents have joined the lobby:
+### Lobby sessions (protocol v2)
 
-```json
-{"environment": "bridge"}
+Nothing is started by hand here: a lobby exists once its host asks for bots, and it lives across
+its games.
+
+| Step | Request | Effect |
+|---|---|---|
+| `!bots N` | `POST /among-us/api/lobbies` `{protocol, game_code, game_version, source, count, players}` | `{lobby_id, token, agents: [{agent_id, name, ego}]}` |
+| more bots | `POST /among-us/api/lobbies/{id}/agents` `{protocol, count, players}` | further agents for the same lobby |
+| game messages | `POST /among-us/api/lobbies/{id}/messages`, one message per request | `202`; agent turns run in the background |
+| actions | `GET /among-us/api/lobbies/{id}/stream` | server-sent events, one `action` per event |
+| `!bots off` | `DELETE /among-us/api/lobbies/{id}` | the lobby and a running match end |
+
+Every request except the registration carries `Authorization: Bearer <token>`. A token belongs to
+exactly one lobby: it can neither read nor write another, and one slow or broken lobby does not
+hold up the rest.
+
+The server posts:
+
+- `game_started` `{map, players}` — a new match begins; its agents start with an empty memory.
+- `observation` `{observation}` — what an agent perceived since its last message; in the task phase
+  with the actions the game would allow right now. The turn runs perceive, remember and believe and
+  stops before decide: memory grows with every event, not only at decision points. The game is not
+  answered — but the agent may act on its own (see below).
+- `decision_request` `{request_id, deadline_seconds, observation}` — the agent is at a decision
+  point. The answer is scheduled to arrive within `deadline_seconds` (two seconds are kept back for
+  the way back); a model turn that cannot make it is replaced by the policy. A newer request of the
+  same agent cancels an unanswered older one.
+- `action_result` `{agent_id, accepted, reason, request_id}` — the game's verdict, recorded on the
+  decision.
+- `agent_left` `{agent_id, reason}` and `game_ended` `{winner, reason, roles}` — `roles` is every
+  player's team role, humans included, kept on the match for evaluation only.
+
+The orchestrator streams `action` `{request_id, …SemanticAction}`: an answer to a request, or with
+`request_id: null` an action on the agent's own initiative, which the server checks against the game
+as it is at that moment and judges with an `action_result` without `request_id`.
+
+**Initiative.** After every observation, `among_us/initiative.py` asks — without the model — whether a
+belief has grown strong enough to act on before the game asks. A crewmate whose suspicion of a
+living player reaches its ego's `judgement.call_meeting_at` calls an emergency meeting, citing the
+memories behind it; evidence it already acted on never triggers a second call (Hive Mind slot
+`among_us:initiative`, per match). The thresholds differ by temperament — Maverick 0.45, Hawk 0.5,
+Sherlock 0.75, Sage 0.9, Echo and Rookie 0.95 — so the same evidence makes one agent press the button
+and leaves another waiting for the next meeting. Each initiative is an `initiative` entry in the match
+log with its suspect, suspicion and the game's verdict.
+
+`GET /among-us/api/lobbies` and `GET /among-us/api/lobbies/{id}` list the lobbies with their state,
+agents (ego, role, alive, room, last action, latency, decisions by scheduling mode, refused answers,
+initiatives sent, accepted and refused) and matches. Each match of a lobby is an ordinary match under `/among-us/api/matches/{id}`.
+
+The registry needs the seeded workflow (`seed/08_among_us.sql`, loaded once): without it a
+registration is refused with `503`, so no lobby ever plays without its agents. The same happens with
+an older seed whose decide step still pins `model_provider` — it would override every agent's own
+model; loading the file again updates it.
+
+### Admin view
+
+The dashboard at `/among-us` lists the registered lobbies above the simulation controls: game code,
+state, matches (each opens the live match view), and per agent its role (always shown — no player has
+access to this page), alive or dead (dead as soon as any agent perceived the death), room, last
+action, latency, decisions by scheduling mode, refused answers, initiatives and its model. A click on
+an agent shows what it suspects and what it recalls after its latest turn.
+
+### One model per agent
+
+Every agent decides with its own provider and model, resolved in this order
+(`among_us/models.py`):
+
+1. the operator's choice in the admin view — `PUT /among-us/api/lobbies/{id}/agents/{agent}/model`
+   with `{"provider", "model"}`, or `{"provider": null}` to go back; it holds from the agent's next
+   turn,
+2. the ego file's optional `[model]` table — `provider` (a provider name from `platform.yaml`) and
+   `name` (omitted: that provider's default model),
+3. the platform default: the first configured provider and its default model.
+
+```toml
+[model]
+provider = "ollama"
+name = "qwen3-coder:30b"
 ```
+
+Which models exist comes from the providers themselves: `GET /among-us/api/models` asks each
+provider's nlght backend (`ModelProviderBackend.list_models()`, cached for a minute), and an
+operator's choice is checked against that list. Every turn carries `model_provider` and `model`,
+which the nlght executor binds for the decide step. An agent whose provider is not configured in this
+process decides by policy, counted as `policy:no-model`, and the admin view says so.
+
+nlght-ai 0.1.4 does not expose the provider backends on its container; `catalog_from_container` reads
+them from the workflow executor (`_model_clients`) until it does.
 
 Everything in *Playing the impostor* works on the server too: lights and comms sabotage (in the
 real game lights out shrink a crewmate's sight rather than hiding names), doors, and the Shapeshifter
 and Phantom roles, with perception following appearance there as well.
 
-There is no spectator ground truth for the real game yet, so leakage, recall and claims cannot be
-scored against the truth there.
+There is no spectator ground truth for the real game yet: `game_ended` reports the roles, but not
+who saw what, so leakage, recall and claims cannot be scored against the truth there.
 
 ## Running a match
 
@@ -218,7 +304,7 @@ witnessed, vent uses and sightings, sabotages started, fixed and won, self-repor
 A meeting statement can carry structured claims — `{"player": "echo", "room": "admin", "tick": 12}`
 — next to its text. The validator accepts them only with a statement, for known players and past
 ticks, and a claim about someone else only with `evidence_ids` the agent can recall; a claim about
-oneself needs none. Claims stay on the orchestrator side (the bridge protocol is unchanged), and only
+oneself needs none. Claims stay on the orchestrator side (the game protocol does not carry them), and only
 the evaluation compares them with where everyone really was. That is what makes deception
 measurable without parsing free text: an impostor's false claim is a lie, a crewmate's false claim
 is a mistake — usually a memory error the ego is allowed to make.

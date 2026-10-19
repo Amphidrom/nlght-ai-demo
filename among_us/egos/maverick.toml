@@ -20,6 +20,7 @@ recall_threshold = 0.3
 
 [judgement]
 suspicion_bias = 1.5
+call_meeting_at = 0.45
 
 [voice]
 max_words = 30

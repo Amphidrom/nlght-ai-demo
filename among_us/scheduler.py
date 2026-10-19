@@ -13,8 +13,10 @@ a time. So:
   task phase. Agents beyond it decide by the deterministic policy this tick —
   the game keeps moving instead of waiting. Meeting and vote turns are exempt:
   they are the decisions the experiment is about.
-- **Deadline.** A model turn that exceeds ``turn_timeout_seconds`` is replaced
-  by a policy turn, so one slow call cannot stall the match.
+- **Deadline.** A model turn that exceeds ``turn_timeout_seconds`` — or the
+  shorter deadline the game sends with a decision request — is replaced by a
+  policy turn, so one slow call cannot stall the match and the answer still
+  arrives while the game waits for it.
 
 A policy turn runs the same workflow with the model switched off: the agent
 still perceives, remembers and believes; only the decide step is skipped.
@@ -82,8 +84,13 @@ class DecisionScheduler:
             planned.append((observation, mode))
         return planned
 
-    async def run(self, batch: Sequence[Observation], turn: TurnFn) -> list[tuple[Observation, dict[str, Any], str]]:
+    async def run(
+        self, batch: Sequence[Observation], turn: TurnFn, *, timeout: float | None = None,
+    ) -> list[tuple[Observation, dict[str, Any], str]]:
+        """Decide the batch. ``timeout`` (the game's own deadline) shortens ``turn_timeout_seconds``."""
+
         planned = self.plan(batch)
+        deadline = self.config.turn_timeout_seconds if timeout is None else min(timeout, self.config.turn_timeout_seconds)
 
         async def one(observation: Observation, mode: str) -> tuple[Observation, dict[str, Any], str]:
             if mode != "model":
@@ -91,7 +98,7 @@ class DecisionScheduler:
                 return observation, await turn(observation, False), mode
             async with self._slots:
                 try:
-                    result = await asyncio.wait_for(turn(observation, True), self.config.turn_timeout_seconds)
+                    result = await asyncio.wait_for(turn(observation, True), deadline)
                 except TimeoutError:
                     logger.warning("among_us.scheduler.timeout | agent=%s tick=%s", observation.agent_id, observation.tick)
                     self.stats["policy:timeout"] += 1

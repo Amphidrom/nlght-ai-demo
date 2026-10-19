@@ -1,6 +1,7 @@
 {
   "type": "action",
-  "protocol": 1,
+  "protocol": 2,
+  "request_id": "sherlock-r0001",
   "agent_id": "sherlock",
   "action": "MOVE_TO",
   "target": "admin",

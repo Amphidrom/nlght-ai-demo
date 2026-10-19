@@ -1,7 +1,11 @@
-"""Bridge protocol v1 between a game environment and the match orchestrator.
+"""Protocol v2 between the nlght Impostor server and the orchestrator.
 
-The same messages travel from the in-process simulation and from the C# game
-bridge, so the agent architecture never depends on how the game is reached.
+The server registers its bots per lobby (``LobbyRegistration`` →
+``LobbyRegistered``), then each lobby has its own session: the server posts
+game messages, the orchestrator streams actions back. The simulation hands the
+same observations and actions over in process, so the agent architecture never
+depends on how the game is reached.
+
 Parsing is strict: an unknown key is refused rather than ignored, because an
 extra field in an observation — another player's role, say — is exactly the
 leak the protocol exists to prevent.
@@ -10,15 +14,15 @@ leak the protocol exists to prevent.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import Any
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 
 
 class ProtocolError(ValueError):
-    """A message that does not match protocol v1."""
+    """A message that does not match protocol v2."""
 
 
 class Phase(StrEnum):
@@ -171,10 +175,14 @@ class ActionResult:
     agent_id: str
     accepted: bool
     reason: str = ""
+    #: The decision request the action answered; null for an action the orchestrator sent on its own.
+    request_id: str | None = None
 
 
 @dataclass(frozen=True)
 class Hello:
+    """In process only: the simulation introduces its players."""
+
     game_version: str
     source: str
     #: The agent-controlled players, in seat order.
@@ -183,25 +191,108 @@ class Hello:
 
 @dataclass(frozen=True)
 class MatchEnd:
+    """In process only: the simulation reports its result."""
+
     winner: str
     reason: str = ""
 
 
+# -- lobby registration (HTTP request and response bodies) -------------------
+
+
 @dataclass(frozen=True)
-class DecisionRequest:
-    """Bridge → orchestrator: this agent is at a decision point."""
+class LobbyRegistration:
+    """Server → orchestrator, when the host types ``!bots``: seat ``count`` agents in this lobby."""
+
+    game_code: str
+    game_version: str
+    source: str
+    count: int
+    #: Names of everyone in the lobby now; an agent's name must not collide with one of them.
+    players: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SeatedAgent:
+    #: Always ``name.lower()``: the server keys every player by its lower-cased name.
+    agent_id: str
+    name: str
+    ego: str
+
+
+@dataclass(frozen=True)
+class LobbyRegistered:
+    """Orchestrator → server: the lobby's session and the agents to spawn, with exactly these names."""
+
+    lobby_id: str
+    token: str
+    agents: tuple[SeatedAgent, ...] = ()
+
+
+# -- lobby session messages --------------------------------------------------
+
+
+@dataclass(frozen=True)
+class GameStarted:
+    """Server → orchestrator: a game began in the lobby; a new match starts."""
+
+    map: str
+    #: Everyone in the game, humans included.
+    players: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ObservationUpdate:
+    """Server → orchestrator: what an agent perceived since its last message. Nothing to answer."""
 
     observation: Observation
+
+
+@dataclass(frozen=True)
+class DecisionRequest:
+    """Server → orchestrator: this agent is at a decision point and waits ``deadline_seconds``."""
+
+    request_id: str
+    deadline_seconds: float
+    observation: Observation
+
+
+@dataclass(frozen=True)
+class ActionMessage:
+    """Orchestrator → server: an action, answering ``request_id`` or (null) on the agent's own initiative."""
+
+    request_id: str | None
+    action: SemanticAction
+
+
+@dataclass(frozen=True)
+class AgentLeft:
+    """Server → orchestrator: an agent left the lobby (``!bots off``, kicked, disconnected)."""
+
+    agent_id: str
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class GameEnded:
+    """Server → orchestrator: the game is over. ``roles`` is the truth, for evaluation only."""
+
+    winner: str
+    reason: str = ""
+    #: Every player's team role ("CREWMATE" / "IMPOSTOR"), humans included.
+    roles: dict[str, str] = field(default_factory=dict)
 
 
 # -- encoding --------------------------------------------------------------
 
 _TYPES: dict[type, str] = {
-    Hello: "hello",
+    GameStarted: "game_started",
+    ObservationUpdate: "observation",
     DecisionRequest: "decision_request",
-    SemanticAction: "action",
+    ActionMessage: "action",
     ActionResult: "action_result",
-    MatchEnd: "match_end",
+    AgentLeft: "agent_left",
+    GameEnded: "game_ended",
 }
 
 
@@ -212,42 +303,127 @@ def to_dict(value: Any) -> dict[str, Any]:
 
 
 def encode(message: Any) -> str:
-    """One protocol message as a single JSON line (NDJSON framing)."""
+    """One lobby session message as a single JSON line."""
 
     kind = _TYPES.get(type(message))
     if kind is None:
         raise ProtocolError(f"not a protocol message: {type(message).__name__}")
-    body = to_dict(message)
+    if isinstance(message, ActionMessage):
+        # Flat on the wire: the action's fields next to the request it answers.
+        body = {"request_id": message.request_id, **to_dict(message.action)}
+    else:
+        body = to_dict(message)
     return json.dumps({"type": kind, "protocol": PROTOCOL_VERSION, **body}, ensure_ascii=False)
 
 
 def decode(line: str | bytes) -> Any:
-    try:
-        raw = json.loads(line)
-    except json.JSONDecodeError as exc:
-        raise ProtocolError(f"message is not JSON: {exc}") from exc
-    if not isinstance(raw, dict):
-        raise ProtocolError("message must be a JSON object")
-    body = dict(raw)
+    body = _versioned(line)
     kind = body.pop("type", None)
-    protocol = body.pop("protocol", None)
-    if protocol != PROTOCOL_VERSION:
-        raise ProtocolError(f"unsupported protocol version: {protocol!r}")
     parsers = {
-        "hello": lambda b: Hello(**{
-            **(item := _exact(b, Hello)), "players": _strings(item.get("players"), "hello.players"),
+        "game_started": lambda b: GameStarted(**{
+            **(item := _exact(b, GameStarted)), "map": _str(item.get("map"), "game_started.map"),
+            "players": _strings(item.get("players"), "game_started.players"),
         }),
-        "decision_request": lambda b: DecisionRequest(
-            observation=observation_from_dict(_exact(b, DecisionRequest)["observation"]),
+        "observation": lambda b: ObservationUpdate(
+            observation=observation_from_dict(_exact(b, ObservationUpdate).get("observation")),
         ),
-        "action": action_from_dict,
-        "action_result": lambda b: ActionResult(**_exact(b, ActionResult)),
-        "match_end": lambda b: MatchEnd(**_exact(b, MatchEnd)),
+        "decision_request": _decision_request,
+        "action": _action_message,
+        "action_result": _action_result,
+        "agent_left": lambda b: AgentLeft(**{
+            **(item := _exact(b, AgentLeft)), "agent_id": _str(item.get("agent_id"), "agent_left.agent_id"),
+            "reason": str(item.get("reason", "")),
+        }),
+        "game_ended": _game_ended,
     }
     parser = parsers.get(str(kind))
     if parser is None:
         raise ProtocolError(f"unknown message type: {kind!r}")
     return parser(body)
+
+
+def registration_from_dict(raw: Any) -> LobbyRegistration:
+    body = _exact(_unversioned(raw), LobbyRegistration)
+    count = body.get("count")
+    if not isinstance(count, int) or isinstance(count, bool):
+        raise ProtocolError("registration.count must be an integer")
+    return LobbyRegistration(
+        game_code=_str(body.get("game_code"), "registration.game_code"),
+        game_version=_str(body.get("game_version"), "registration.game_version"),
+        source=_str(body.get("source"), "registration.source"),
+        count=count,
+        players=_strings(body.get("players"), "registration.players"),
+    )
+
+
+def registered_to_dict(registered: LobbyRegistered) -> dict[str, Any]:
+    return {"protocol": PROTOCOL_VERSION, **to_dict(registered)}
+
+
+def _versioned(line: str | bytes) -> dict[str, Any]:
+    try:
+        raw = json.loads(line)
+    except json.JSONDecodeError as exc:
+        raise ProtocolError(f"message is not JSON: {exc}") from exc
+    return _unversioned(raw)
+
+
+def _unversioned(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ProtocolError("message must be a JSON object")
+    body = dict(raw)
+    protocol = body.pop("protocol", None)
+    if protocol != PROTOCOL_VERSION:
+        raise ProtocolError(f"unsupported protocol version: {protocol!r}")
+    return body
+
+
+def _decision_request(body: dict[str, Any]) -> DecisionRequest:
+    item = _exact(body, DecisionRequest)
+    deadline = item.get("deadline_seconds")
+    if not isinstance(deadline, int | float) or isinstance(deadline, bool) or deadline <= 0:
+        raise ProtocolError("decision_request.deadline_seconds must be a positive number")
+    return DecisionRequest(
+        request_id=_str(item.get("request_id"), "decision_request.request_id"),
+        deadline_seconds=float(deadline),
+        observation=observation_from_dict(item.get("observation")),
+    )
+
+
+def _action_message(body: dict[str, Any]) -> ActionMessage:
+    body = dict(body)
+    request_id = _optional_str(body.pop("request_id", None), "action.request_id")
+    return ActionMessage(request_id, action_from_dict(body))
+
+
+def _action_result(body: dict[str, Any]) -> ActionResult:
+    item = _exact(body, ActionResult)
+    if not isinstance(item.get("accepted"), bool):
+        raise ProtocolError("action_result.accepted must be a boolean")
+    return ActionResult(
+        agent_id=_str(item.get("agent_id"), "action_result.agent_id"),
+        accepted=item["accepted"],
+        reason=str(item.get("reason", "")),
+        request_id=_optional_str(item.get("request_id"), "action_result.request_id"),
+    )
+
+
+def _game_ended(body: dict[str, Any]) -> GameEnded:
+    item = _exact(body, GameEnded)
+    roles = item.get("roles") or {}
+    if not isinstance(roles, dict) or not all(isinstance(k, str) for k in roles):
+        raise ProtocolError("game_ended.roles must map players to roles")
+    return GameEnded(
+        winner=_str(item.get("winner"), "game_ended.winner"),
+        reason=str(item.get("reason", "")),
+        roles={player: _enum(Role, role, "game_ended.roles").value for player, role in roles.items()},
+    )
+
+
+def _str(value: Any, where: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise ProtocolError(f"{where} must be a non-empty string")
+    return value
 
 
 def _exact(raw: Any, cls: type) -> dict[str, Any]:

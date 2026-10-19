@@ -1,7 +1,8 @@
 {
   "type": "action_result",
-  "protocol": 1,
+  "protocol": 2,
   "agent_id": "sherlock",
   "accepted": true,
-  "reason": ""
+  "reason": "",
+  "request_id": "sherlock-r0001"
 }

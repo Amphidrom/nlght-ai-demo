@@ -332,6 +332,147 @@ function recallTable(recall) {
       Object.entries(recall).map(([agent, r]) => [agent, r.ego, String(r.witnessed), String(r.ever_recalled), String(r.coverage ?? "—"), String(r.detail_accuracy ?? "—")])));
 }
 
+// -- lobbies (admin) ------------------------------------------------------------------
+// Lobbies of the real game, as the nlght Impostor server registered them. The page polls; a model
+// choice is sent at once and holds from the agent's next turn on.
+
+const lobbies = { providers: [], open: new Set(), poll: null };
+
+async function startLobbies() {
+  await loadProviders();
+  await refreshLobbies();
+  lobbies.poll = setInterval(refreshLobbies, 2000);
+  setInterval(loadProviders, 60000);
+}
+
+async function loadProviders() {
+  try {
+    lobbies.providers = (await json(`${API}/models`)).providers;
+  } catch {
+    lobbies.providers = [];   // no model providers known yet (e.g. no lobby registry in this process)
+  }
+}
+
+async function refreshLobbies() {
+  // Never rebuild a table under an open model menu.
+  if (document.activeElement?.closest?.("#lobby-list select")) return;
+  const status = document.getElementById("lobbies-state");
+  let list;
+  try {
+    list = (await json(`${API}/lobbies`)).lobbies;
+  } catch (error) {
+    status.textContent = `Could not load lobbies: ${error.message}`;
+    return;
+  }
+  status.textContent = list.length ? "" : "No lobby yet.";
+  document.getElementById("lobby-list").replaceChildren(...list.map(renderLobby));
+}
+
+function renderLobby(lobby) {
+  const matches = el("span", { class: "matches muted" }, `matches: ${lobby.matches.length ? "" : "—"}`);
+  for (const id of lobby.matches) {
+    const open = el("button", { class: "link", type: "button", text: id });
+    open.addEventListener("click", () => {
+      history.replaceState(null, "", `?match=${id}`);
+      attach(id).then(() => document.getElementById("live").scrollIntoView());
+    });
+    matches.append(open);
+  }
+  const rows = [];
+  for (const agent of lobby.agents) {
+    const key = `${lobby.lobby_id}/${agent.agent_id}`;
+    const row = agentRow(lobby, agent);
+    row.addEventListener("click", (event) => {
+      if (event.target.closest("select")) return;
+      lobbies.open.has(key) ? lobbies.open.delete(key) : lobbies.open.add(key);
+      refreshLobbies();
+    });
+    rows.push(row);
+    if (lobbies.open.has(key)) rows.push(agentDetail(agent));
+  }
+  return el("article", { class: "lobby" },
+    el("header", {},
+      el("h3", { text: lobby.game_code }),
+      el("span", { class: `badge ${lobby.state === "in_game" ? "running" : lobby.state === "closed" ? "failed" : "finished"}`, text: lobby.state.replace("_", " ") }),
+      el("span", { class: "muted", text: `${lobby.source} · ${lobby.game_version}` }),
+      matches),
+    el("div", { class: "lobby-table" }, el("table", {},
+      el("thead", {}, el("tr", {}, ...["agent", "role", "status", "last action", "latency", "decisions", "refused", "initiatives", "model"].map((h) => el("th", { text: h })))),
+      el("tbody", {}, ...rows))));
+}
+
+function agentRow(lobby, agent) {
+  const decided = Object.entries(agent.decided);
+  const total = decided.reduce((sum, [, n]) => sum + n, 0);
+  const initiatives = agent.initiatives.sent ? `${agent.initiatives.sent} sent · ${agent.initiatives.accepted || 0} accepted` : "—";
+  const role = el("td", { text: agent.role ? [agent.role, agent.special_role].filter(Boolean).join(" · ").toLowerCase() : "—" });
+  if (agent.role === "IMPOSTOR") role.className = "role-impostor";
+  const status = el("td", { text: !agent.present ? "left" : `${agent.alive ? "alive" : "dead"}${agent.room ? ` · ${agent.room}` : ""}` });
+  if (agent.present && !agent.alive) status.className = "dead";
+  const decisions = el("td", { text: total ? `${total}` : "—", title: decided.map(([mode, n]) => `${mode}: ${n}`).join("\n") });
+  return el("tr", { class: `agent-row${agent.present ? "" : " gone"}` },
+    el("td", {}, el("b", { text: agent.name }), el("span", { class: "muted", text: agent.ego !== agent.agent_id ? ` · ${agent.ego}` : "" })),
+    role,
+    status,
+    el("td", { text: agent.last_action ? describe(agent.last_action) : "—" }),
+    el("td", { text: agent.last_latency_ms != null ? `${(agent.last_latency_ms / 1000).toFixed(1)} s` : "—" }),
+    decisions,
+    el("td", { text: String(agent.refused) }),
+    el("td", { text: initiatives }),
+    el("td", {}, modelPicker(lobby, agent)));
+}
+
+function modelPicker(lobby, agent) {
+  const current = agent.model;
+  const cell = el("div", {});
+  const select = el("select", { "aria-label": `Model of ${agent.name}` });
+  const inherited = current && current.source !== "override" ? current : null;
+  select.append(el("option", { value: "", text: inherited ? `${inherited.source}: ${inherited.provider} / ${inherited.model || "default"}` : "ego / platform default" }));
+  for (const provider of lobbies.providers) {
+    const group = el("optgroup", { label: provider.name });
+    if (provider.error) group.append(el("option", { value: "", disabled: "", text: `unavailable: ${provider.error}` }));
+    for (const model of provider.models) {
+      const option = el("option", { value: JSON.stringify([provider.name, model]), text: model });
+      if (current?.source === "override" && current.provider === provider.name && current.model === model) option.selected = true;
+      group.append(option);
+    }
+    select.append(group);
+  }
+  if (current?.source === "override" && ![...select.options].some((o) => o.selected)) {
+    select.append(el("option", { value: JSON.stringify([current.provider, current.model]), selected: "", text: `${current.provider} / ${current.model || "default"}` }));
+  }
+  select.addEventListener("change", async () => {
+    const [provider, model] = select.value ? JSON.parse(select.value) : [null, null];
+    select.blur();
+    try {
+      await json(`${API}/lobbies/${lobby.lobby_id}/agents/${agent.agent_id}/model`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider, model }),
+      });
+    } catch (error) {
+      document.getElementById("lobbies-state").textContent = `Model not changed: ${error.message}`;
+    }
+    refreshLobbies();
+  });
+  cell.append(select);
+  if (!agent.model_usable) cell.append(el("div", { class: "warn", text: "provider not configured · the policy decides" }));
+  return cell;
+}
+
+function agentDetail(agent) {
+  const beliefs = Object.entries(agent.beliefs).sort((a, b) => b[1].suspicion - a[1].suspicion);
+  const suspicions = el("ul", {}, ...beliefs.map(([player, b]) => el("li", {},
+    el("span", { class: "suspicion", style: `width: ${Math.round(b.suspicion * 60)}px` }),
+    `${player} ${b.suspicion} (${b.evidence_ids.length} memories)`)));
+  const memories = el("ul", {}, ...agent.recalled.map((m) => el("li", {
+    text: `${m.event_id} · ${m.kind.toLowerCase()} · ${Object.entries(m.details).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(", ")} · certainty ${m.certainty}`,
+  })));
+  const memory = agent.memory.stored != null ? ` · ${agent.memory.stored} stored, ${agent.memory.forgotten || 0} forgot in the last turn` : "";
+  return el("tr", { class: "agent-detail" }, el("td", { colspan: "9" }, el("div", { class: "columns" },
+    el("div", {}, el("p", { class: "eyebrow", text: "Suspects" }), beliefs.length ? suspicions : el("span", { class: "muted", text: "—" })),
+    el("div", {}, el("p", { class: "eyebrow", text: `Recalls${memory}` }), agent.recalled.length ? memories : el("span", { class: "muted", text: "—" })))));
+}
+
 setup().catch((error) => {
   document.getElementById("start-state").textContent = `Could not load: ${error.message}`;
 });
+startLobbies();

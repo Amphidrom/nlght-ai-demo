@@ -19,9 +19,11 @@ INSERT INTO workflow_steps (workflow_step_id, workflow_version_id, position, nam
  '{}', '{"remembered":"a8100000-0000-0000-0000-000000000012"}', false, false),
 ('a8100000-0000-0000-0000-000000000012', 'a8100000-0000-0000-0000-000000000002', 3, 'believe', 'among_us_believe',
  '{}', '{"believed":"a8100000-0000-0000-0000-000000000013"}', false, false),
--- The only step that calls a model, and only when more than one action is legal.
+-- The only step that calls a model, and only when more than one action is legal. It pins no provider:
+-- every turn names its own (model_provider, model in the payload) — the agent's choice from the admin UI,
+-- its ego file, or the platform default. Loading this file again updates an older seed that pinned one.
 ('a8100000-0000-0000-0000-000000000013', 'a8100000-0000-0000-0000-000000000002', 4, 'decide', 'among_us_decide',
- '{"model_provider":"ollama","debug":false}', '{"decided":"a8100000-0000-0000-0000-000000000014"}', false, false),
+ '{"debug":false}', '{"decided":"a8100000-0000-0000-0000-000000000014"}', false, false),
 ('a8100000-0000-0000-0000-000000000014', 'a8100000-0000-0000-0000-000000000002', 5, 'validate', 'among_us_validate',
  '{}', '{}', false, true)
 ON CONFLICT (workflow_step_id) DO UPDATE SET
@@ -44,7 +46,7 @@ INSERT INTO workflow_steps (workflow_step_id, workflow_version_id, position, nam
 ('a8100000-0000-0000-0000-000000000031', 'a8100000-0000-0000-0000-000000000022', 2, 'transcript', 'among_us_transcript',
  '{}', '{"remembered":"a8100000-0000-0000-0000-000000000032"}', false, false),
 ('a8100000-0000-0000-0000-000000000032', 'a8100000-0000-0000-0000-000000000022', 3, 'decide', 'among_us_decide',
- '{"model_provider":"ollama","debug":false}', '{"decided":"a8100000-0000-0000-0000-000000000033"}', false, false),
+ '{"debug":false}', '{"decided":"a8100000-0000-0000-0000-000000000033"}', false, false),
 ('a8100000-0000-0000-0000-000000000033', 'a8100000-0000-0000-0000-000000000022', 4, 'validate', 'among_us_validate',
  '{}', '{}', false, true)
 ON CONFLICT (workflow_step_id) DO UPDATE SET

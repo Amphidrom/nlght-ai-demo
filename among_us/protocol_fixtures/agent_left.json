@@ -1,0 +1,6 @@
+{
+  "type": "agent_left",
+  "protocol": 2,
+  "agent_id": "bubbles",
+  "reason": "removed"
+}

@@ -75,10 +75,14 @@ class Retention(_Section):
 
 
 class Judgement(_Section):
-    """How recalled evidence turns into suspicion (beliefs.update_beliefs)."""
+    """How recalled evidence turns into suspicion (beliefs.update_beliefs), and suspicion into action (initiative)."""
 
     suspicion_bias: float = Field(
         ge=0.0, le=3.0, description="Multiplier on incriminating evidence; exonerating evidence is not scaled.",
+    )
+    call_meeting_at: Probability = Field(
+        description="Suspicion of one player at which a crewmate calls an emergency meeting on its own, between "
+        "decisions (initiative.initiative_action). Above 1, never.",
     )
 
 
@@ -86,6 +90,17 @@ class Voice(_Section):
     """How the agent speaks (decide prompt, validator)."""
 
     max_words: int = Field(ge=5, le=120, description="Upper bound on words per meeting statement.")
+
+
+class ModelSelection(_Section):
+    """Which model the agent decides with (models.ModelCatalog.resolve). Not cognition but deployment: optional, and
+    the operator can choose differently per agent in the admin UI."""
+
+    provider: str = Field(min_length=1, max_length=64, description="Name of a model provider configured in platform.yaml.")
+    name: str | None = Field(
+        default=None, min_length=1, max_length=200,
+        description="Model at that provider, as its model list names it; omitted: the provider's default model.",
+    )
 
 
 class EgoProfile(_Section):
@@ -101,6 +116,7 @@ class EgoProfile(_Section):
     retention: Retention
     judgement: Judgement
     voice: Voice
+    model: ModelSelection | None = None
 
     def attention_for(self, kind: EventKind) -> float:
         if kind in ALWAYS_NOTICED:
