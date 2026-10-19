@@ -675,7 +675,7 @@ wheels = [
 
 [[package]]
 name = "nlght-ai"
-version = "0.1.3"
+version = "0.1.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "alembic" },
@@ -693,9 +693,9 @@ dependencies = [
     { name = "tzdata" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1d/c3/a41424f05698a139910d4e32c37fca305479f1c2291636d69f0cfc12236e/nlght_ai-0.1.3.tar.gz", hash = "sha256:fbeaa0c19b699b35e2822db8acb5df5421b5a80405b50ebb622994e13a9acb92", size = 715248, upload-time = "2026-09-04T12:47:47.017Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c3/4e/22a0cd324a708c4309c20c7f8ff94d2d1c42380683164db1ea8c97fd7248/nlght_ai-0.1.4.tar.gz", hash = "sha256:21472e45784ac05f3b24db837818ed9c82eda140863d42560c3321918ad9e526", size = 681166, upload-time = "2026-10-19T09:22:07.532Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/87/7f/1be7abcf92ada7355146f341a0cde953d803694f16f25391d839956e237f/nlght_ai-0.1.3-py3-none-any.whl", hash = "sha256:91f4919b33acc5b0e2ce9d96eca43b8a0e71039d3462696e93541c6309b20147", size = 932492, upload-time = "2026-09-04T12:47:44.965Z" },
+    { url = "https://files.pythonhosted.org/packages/7b/5a/a0aa0fa24e1c894312a0f1a77210953b21fec043cbf1e789cb882091f183/nlght_ai-0.1.4-py3-none-any.whl", hash = "sha256:1247f46a053c45a44a585e771d1d5f4524f6c67791d3f26c3bacb5db1da0b481", size = 898364, upload-time = "2026-10-19T09:22:05.44Z" },
 ]
 
 [package.optional-dependencies]
@@ -724,7 +724,7 @@ knowledge = [
 
 [package.metadata]
 requires-dist = [
-    { name = "nlght-ai", extras = ["docker", "hive-mind"], specifier = ">=0.1.3" },
+    { name = "nlght-ai", extras = ["docker", "hive-mind"], specifier = ">=0.1.4" },
     { name = "nlght-ai", extras = ["lexical-store"], marker = "extra == 'knowledge'" },
 ]
 provides-extras = ["knowledge"]
