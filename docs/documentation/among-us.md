@@ -202,6 +202,14 @@ for the vote alone only shortly before the meeting ends
 memories of their own (`JUDGED`), weighed in the beliefs and forgotten like any other memory, so
 what the meeting settled carries into the game turns that follow.
 
+**A conversation, not noise.** The meeting turn begins with its cause ("This meeting: hawk reported the
+dead body of nova." — `situation.called_by`, `body_of`). Whatever someone said naming the agent since
+it last spoke is quoted in the request itself ("Said to you: …  Answer hawk directly first"), so the
+answer is to that line. Before asking the model, the decide step checks whether the agent has anything
+to add (`turn.worth_a_turn`): the opening line, being spoken to, open agenda points, contradictions, or
+the talk turning to someone it suspects or trusts. If not, it listens — `WAIT`, decided without the
+model (`decided_by: listening`). The vote is asked for on its own at the end of the meeting.
+
 **At the table.** Whoever is not sitting at the meeting table is dead: the agent knows it for certain
 and keeps it for the rest of the match (Hive Mind slot `among_us:dead`, never forgotten), and its
 agenda drops anything about them. A claim and a sighting only clash if both concern the same moment —

@@ -136,13 +136,11 @@ def meeting_prompt(observation: Observation, ego: EgoProfile, assessment: Assess
         choices.append("SKIP   (no vote)")
     if ActionKind.WAIT in legal:
         choices.append("WAIT   (nothing new to say)")
-    if ActionKind.SAY in legal and ActionKind.VOTE in legal:
-        choices.append("Voting is open: vote once you are convinced, or keep talking and vote later.")
     rules = (f"{ego.persona}\n\n{MEETING_RULES}\n{IMPOSTOR_MEETING if impostor else ''}\n"
              f"Keep anything you say under {ego.voice.max_words} words.\n\n" + ANSWER_FORMAT.format(choices="\n".join(choices)))
     refs, memories = _number(sorted(recalled, key=lambda m: int(m["tick"])), observation.tick)
     room = observation.self_state.room.replace("_", " ")
-    view = [f"{_you(observation, at=f'you were in {room} when the meeting was called')}", _game(observation, assessment),
+    view = [_cause(observation), f"{_you(observation, at=f'you were in {room} when the meeting was called')}", _game(observation, assessment),
             "At the table: " + (", ".join(p.player_id for p in observation.visible_players) or "nobody else") + "."]
     if assessment.dead:
         view.append(f"Dead, out of the game: {', '.join(assessment.dead)}.")
@@ -166,14 +164,49 @@ def meeting_prompt(observation: Observation, ego: EgoProfile, assessment: Assess
     view.append("You remember:\n" + ("\n".join(line for line, chat in memories if not chat) or "nothing clear."))
     chat = chat_lines(observation.meeting_chat, observation.agent_id)
     asked = questions_for(observation)
-    if asked:
-        chat.append("Asked of you, not answered yet: " + " / ".join(f'{q.asker}: "{q.text}"' for q in asked))
     heard = [line for line, said in memories if said]
     context = [("view", "\n".join(view), "game"),
                ("chat", "Chat so far:\n" + ("\n".join(chat) if chat else "(nobody has spoken yet)")
                 + ("\nWhat you remember hearing earlier:\n" + "\n".join(heard) if heard else ""), "chat")]
-    request = "Your vote:" if voting else f"Turn: {observation.decision_reason or 'your turn to speak'}. Your answer:"
+    if voting and ActionKind.SAY not in legal:
+        request = "Time to vote. Your vote:"
+    elif asked:
+        # Spoken to: the line itself is the request, so the answer is to it.
+        said = " / ".join(f'{q.asker}: "{q.text}"' for q in asked)
+        whom = ", ".join(dict.fromkeys(q.asker for q in asked))
+        request = f"Said to you: {said}\nAnswer {whom} directly first — to what was said. Your answer:"
+    else:
+        request = f"Turn: {observation.decision_reason or 'your turn to speak'}. Your answer:"
     return Prompt(rules, context, request, list(observation.legal_actions), refs)
+
+
+def _cause(observation: Observation) -> str:
+    s = observation.situation
+    if s.called_by and s.body_of:
+        return f"This meeting: {s.called_by} reported the dead body of {s.body_of}."
+    if s.called_by:
+        return f"This meeting: {s.called_by} called an emergency meeting — no body."
+    return "This meeting: called."
+
+
+def worth_a_turn(observation: Observation, agenda: Sequence[dict[str, Any]], assessment: Assessment,
+                 beliefs: dict[str, dict[str, Any]]) -> bool:
+    """Whether the agent has anything to add to the talk now. If not, it listens — no model call, no noise.
+
+    It speaks to open, when spoken to, with points still on its agenda or contradictions to raise, and when the
+    talk turns to someone it suspects or trusts.
+    """
+
+    me = observation.agent_id
+    chat = list(observation.meeting_chat)
+    own = [i for i, m in enumerate(chat) if m.speaker == me]
+    if not own or questions_for(observation) or assessment.contradictions:
+        return True
+    if any(not item["done"] for item in agenda):
+        return True
+    concerned = {p for p, b in beliefs.items() if b["suspicion"] >= 0.5} | set(assessment.trusted)
+    since = chat[own[-1] + 1:]
+    return any(re.search(rf"\b{re.escape(p)}\b", m.text, re.IGNORECASE) for m in since if m.speaker != me for p in concerned)
 
 
 def _ordered(legal: Sequence[LegalAction], preferred: LegalAction | None) -> list[LegalAction]:

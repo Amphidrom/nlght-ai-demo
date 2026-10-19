@@ -116,8 +116,13 @@ def _meeting_turn(observation: Observation, beliefs: dict[str, dict[str, Any]], 
         return player in lower and any(word in lower for word in _ACCUSING)
 
     lines: list[tuple[str, str, tuple[str, ...]]] = []
-    for question in questions_for(observation):
-        lines.append((f"{question.asker}, I was in {me.room.replace('_', ' ')}.", "ANSWER", ()))
+    here = me.room.replace("_", " ")
+    for line in questions_for(observation):
+        # Spoken to: an accusation is answered with a defence, a question with an answer.
+        if accuses(line.text, agent):
+            lines.append((f"{line.asker}, it wasn't me. I was in {here}.", "DEFEND", ()))
+        elif "?" in line.text:
+            lines.append((f"{line.asker}, I was in {here}.", "ANSWER", ()))
     for item in agenda:
         if not item["done"]:
             lines.append((item["text"], "TELL" if item["kind"] == "tell" else "QUESTION",

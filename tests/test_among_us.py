@@ -1021,7 +1021,7 @@ class MeetingConversationTests(unittest.TestCase):
 
     def test_the_model_sees_the_conversation_and_its_own_lines(self) -> None:
         llm = fake_llm(first_legal_answer)
-        observation = self._meeting(("hawk", "Sherlock, where were you?"), ("sherlock", "In admin."))
+        observation = self._meeting(("sherlock", "In admin."), ("hawk", "Sherlock, in admin doing what?"))
         payload = {"match_id": "m", "match_seed": 1, "agent_id": "sherlock", "ego": "sherlock", "players": ["hawk", "nova", "echo"],
                    "source": "test", "observation": to_dict(observation)}
         asyncio.run(PipelineAgentRunner(llm).decide(agent_id="sherlock", session_key="s", payload=payload))
@@ -1029,7 +1029,8 @@ class MeetingConversationTests(unittest.TestCase):
         trusted = next(m for m in messages if isinstance(m, TrustedInstructionMessage))
         self.assertIn("This is a meeting", trusted.content)
         chat = next(r for m in messages if isinstance(m, UntrustedContextMessage) for r in m.records if r.record_id == "turn:chat")
-        self.assertIn("hawk: Sherlock, where were you?\nyou: In admin.", chat.content)
+        self.assertIn("you: In admin.\nhawk: Sherlock, in admin doing what?", chat.content)
+        self.assertIn('Said to you: hawk: "Sherlock, in admin doing what?"', str(messages[-1].content))
         self.assertEqual({"game_chat"}, {ref.kind for ref in chat.provenance.origin.sources}, "other players' words stay marked")
         self.assertNotIn("{", chat.content, "plain text, no JSON")
 
@@ -1174,7 +1175,8 @@ class AgendaTests(unittest.TestCase):
                                 [self.seen, self.body], {}, agenda)
         text = "\n".join(t for _, t, _ in prompt.context)
         self.assertIn("Tell: I saw hawk in electrical just before nova's body was found there.", text)
-        self.assertIn('Asked of you, not answered yet: hawk: "Sherlock, where were you?"', text)
+        self.assertIn('Said to you: hawk: "Sherlock, where were you?"', prompt.request)
+        self.assertIn("Answer hawk directly first", prompt.request)
         self.assertIn("First answer what you were asked", prompt.rules)
 
 
@@ -1251,3 +1253,42 @@ class EmergencyMeetingTests(unittest.TestCase):
         old = {**vent, "tick": 20}
         self.assertNotEqual("accuse", (assess(self._idle_crewmate(since_meeting=5), self._beliefs("v1"), [old], load_ego("maverick"), None).plan or {}).get("tactic"),
                             "seen before the last meeting: that meeting was the place for it")
+
+
+class ListeningTests(unittest.TestCase):
+    """Who has nothing to add listens without a model call; the meeting's cause is always in view."""
+
+    def _table(self, *chat: tuple[str, str]) -> Observation:
+        return crew_observation(roster=("sherlock", "hawk", "nova", "echo"),
+                                visible_players=tuple(VisiblePlayer(p, "meeting") for p in ("hawk", "echo")),
+                                meeting_chat=tuple(ChatMessage(s, t) for s, t in chat),
+                                situation=Situation(called_by="hawk", body_of="nova"))
+
+    def test_an_agent_with_nothing_to_add_listens(self) -> None:
+        from among_us.assess import assess
+        from among_us.turn import worth_a_turn
+
+        def worth(observation: Observation, beliefs=None) -> bool:
+            beliefs = beliefs or {}
+            return worth_a_turn(observation, [], assess(observation, beliefs, [], load_ego("sherlock"), None), beliefs)
+
+        self.assertTrue(worth(self._table()), "the opening line")
+        said = self._table(("sherlock", "I was in cafeteria."), ("echo", "I was in admin."))
+        self.assertFalse(worth(said))
+        self.assertTrue(worth(self._table(("sherlock", "I was in cafeteria."), ("echo", "Sherlock is lying."))), "spoken to")
+
+    def test_the_talk_turning_to_a_suspect_brings_the_agent_in(self) -> None:
+        from among_us.assess import assess
+        from among_us.turn import worth_a_turn
+
+        observation = self._table(("sherlock", "I was in cafeteria."), ("echo", "hawk was with me in admin."))
+        beliefs = {"hawk": {"suspicion": 0.7, "trust": 0.0, "evidence_ids": []}}
+        self.assertTrue(worth_a_turn(observation, [], assess(observation, beliefs, [], load_ego("sherlock"), None), beliefs))
+
+    def test_the_meeting_cause_heads_the_meeting_turn(self) -> None:
+        from among_us.assess import assess
+        from among_us.turn import meeting_prompt
+
+        observation = self._table()
+        prompt = meeting_prompt(observation, load_ego("sherlock"), assess(observation, {}, [], load_ego("sherlock"), None), [], {})
+        self.assertTrue(prompt.context[0][1].startswith("This meeting: hawk reported the dead body of nova."))

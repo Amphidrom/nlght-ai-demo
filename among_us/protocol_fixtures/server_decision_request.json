@@ -178,7 +178,9 @@
       "task_progress": 0.25,
       "emergencies_left": 1,
       "kill_cooldown": null,
-      "since_meeting": 4
+      "since_meeting": 4,
+      "called_by": null,
+      "body_of": null
     }
   }
 }

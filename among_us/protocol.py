@@ -162,6 +162,9 @@ class Situation:
     kill_cooldown: int | None = None
     #: Ticks since the last meeting ended, or since the game began.
     since_meeting: int | None = None
+    #: In a meeting, on everyone's screen: who called it, and whose body was reported (None: an emergency meeting).
+    called_by: str | None = None
+    body_of: str | None = None
 
 
 @dataclass(frozen=True)
@@ -594,5 +597,7 @@ def _situation(raw: Any) -> Situation:
         emergencies_left=number("emergencies_left", int),
         kill_cooldown=number("kill_cooldown", int),
         since_meeting=number("since_meeting", int),
+        called_by=_optional_str(body.get("called_by"), "situation.called_by"),
+        body_of=_optional_str(body.get("body_of"), "situation.body_of"),
     )
 

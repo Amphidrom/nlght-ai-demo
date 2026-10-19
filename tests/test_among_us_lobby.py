@@ -426,9 +426,10 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
 class AdminViewTests(unittest.IsolatedAsyncioTestCase):
     async def test_the_lobby_shows_deaths_beliefs_and_memories(self) -> None:
         registry = LobbyRegistry(PipelineAgentRunner(), offline=True)
-        registered = registry.register(registration(2))
+        registered = registry.register(registration(15, players=()))
         lobby = registry.lobby(registered.lobby_id)
-        a, b = (agent.agent_id for agent in registered.agents)
+        # A sharp observer: what a weak ego keeps of a kill may stay below what it can recall.
+        a, b = "sherlock", "echo"
         registry.handle(lobby, GameStarted("skeld", (a, b, "host")))
         kill = ObservedEvent(f"{a}-00001", 1, EventKind.KILL_WITNESSED, room="admin", actor="host", target=b)
         registry.handle(lobby, ObservationUpdate(observation(a, events=(kill,), legal=())))

@@ -164,6 +164,7 @@ class SimEngine:
         self._meeting_rounds = meeting_rounds
         self._meeting_chat: list[ChatMessage] = []
         self._last_meeting_tick = 0
+        self._meeting_cause: tuple[str, str | None] | None = None
         self._max_ticks = max_ticks
         #: Shared by the impostor team, as in the real game.
         self._sabotage_cooldown = sabotage_cooldown
@@ -309,6 +310,8 @@ class SimEngine:
                 emergencies_left=None if player.role is Role.IMPOSTOR else int(not player.button_used),
                 kill_cooldown=player.kill_cooldown if player.role is Role.IMPOSTOR else None,
                 since_meeting=self.tick - self._last_meeting_tick,
+                called_by=self._meeting_cause[0] if in_meeting and self._meeting_cause else None,
+                body_of=self._meeting_cause[1] if in_meeting and self._meeting_cause else None,
             ),
         )
 
@@ -632,6 +635,7 @@ class SimEngine:
         self._round = 0
         self._meeting_chat = []
         self._last_meeting_tick = self.tick
+        self._meeting_cause = (caller.player_id, victim)
         self._statements = {}
         self._votes = {}
         for p in self._players.values():

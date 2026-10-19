@@ -63,13 +63,13 @@ def update(items: list[dict[str, Any]], observation: Observation, recalled: Sequ
 
 
 def questions_for(observation: Observation) -> list[Question]:
-    """Questions others put to this agent since it last spoke: answer them first."""
+    """What others said to or about this agent by name since it last spoke — a question or not: answer it first."""
 
     me = observation.agent_id
     chat = list(observation.meeting_chat)
     last_own = max((i for i, m in enumerate(chat) if m.speaker == me), default=-1)
     return [Question(m.speaker, m.text) for m in chat[last_own + 1:]
-            if m.speaker != me and "?" in m.text and _mentions(m.text.lower(), me)]
+            if m.speaker != me and _mentions(m.text.lower(), me)]
 
 
 def replies(items: Sequence[dict[str, Any]], observation: Observation, recalled: Sequence[dict[str, Any]]) -> list[Reply]:

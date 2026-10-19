@@ -45,7 +45,7 @@ from among_us.protocol import (
     to_dict,
 )
 from among_us.sim.map import ROOMS
-from among_us.turn import game_prompt, meeting_prompt, parse_game, parse_meeting
+from among_us.turn import game_prompt, meeting_prompt, parse_game, parse_meeting, worth_a_turn
 from grounding import evidence
 from nlght.core.hive_mind.models import TurnSummary
 from nlght.core.model.messages import (
@@ -301,6 +301,13 @@ class AmongUsDecideStep(StepBase):
             _lap(ctx, "decide", started)
             return StepResult(ctx=ctx, verdict="decided")
 
+        if meeting and LegalAction(ActionKind.WAIT) in observation.legal_actions \
+                and not worth_a_turn(observation, agenda, assessment, beliefs):
+            # Nothing to add right now: listen, without asking the model.
+            _set_state(ctx, answer=to_dict(SemanticAction(state["agent_id"], ActionKind.WAIT)),
+                       validation={"status": "accepted", "reason": "nothing to add"}, decided_by="listening")
+            _lap(ctx, "decide", started)
+            return StepResult(ctx=ctx, verdict="decided")
         prompt = (meeting_prompt(observation, ego, assessment, recalled, beliefs, agenda) if meeting
                   else game_prompt(observation, ego, assessment, recalled, beliefs))
         agent, source = state["agent_id"], state["source"]
