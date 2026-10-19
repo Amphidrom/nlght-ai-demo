@@ -7,8 +7,10 @@ observation, recalled memories and beliefs.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
+from among_us.agenda import questions_for
 from among_us.beliefs import most_suspected
 from among_us.protocol import ActionKind, EventKind, Observation, Phase, Role, SemanticAction
 from among_us.sim.map import ROOMS, SABOTAGE_ROOMS, TASKS
@@ -23,7 +25,8 @@ _QUESTIONS = (
 _PRIOR = 0.2
 
 
-def fallback_action(observation: Observation, beliefs: dict[str, dict[str, Any]], recalled_ids: set[str]) -> SemanticAction:
+def fallback_action(observation: Observation, beliefs: dict[str, dict[str, Any]], recalled_ids: set[str],
+                    agenda: Sequence[dict[str, Any]] = ()) -> SemanticAction:
     me = observation.self_state
     legal = {(a.action, a.target) for a in observation.legal_actions}
     agent = observation.agent_id
@@ -31,8 +34,9 @@ def fallback_action(observation: Observation, beliefs: dict[str, dict[str, Any]]
     def legal_targets(kind: ActionKind) -> list[str]:
         return sorted(t for k, t in legal if k is kind and t is not None)
 
-    if observation.phase is Phase.MEETING:
-        return _meeting_turn(observation, beliefs, recalled_ids)
+    if observation.phase is Phase.MEETING or (observation.phase is Phase.VOTING and (ActionKind.SAY, None) in legal):
+        # While the table can still talk, talk (or wait); the vote comes with the last call.
+        return _meeting_turn(observation, beliefs, recalled_ids, agenda)
 
     if observation.phase is Phase.VOTING:
         candidates = [t for t in legal_targets(ActionKind.VOTE) if t not in me.known_impostors]
@@ -93,8 +97,10 @@ def fallback_action(observation: Observation, beliefs: dict[str, dict[str, Any]]
     return SemanticAction(agent, ActionKind.WAIT)
 
 
-def _meeting_turn(observation: Observation, beliefs: dict[str, dict[str, Any]], recalled_ids: set[str]) -> SemanticAction:
-    """A meeting line without the model: answer an accusation, accuse with evidence, take a side, or ask.
+def _meeting_turn(observation: Observation, beliefs: dict[str, dict[str, Any]], recalled_ids: set[str],
+                  agenda: Sequence[dict[str, Any]] = ()) -> SemanticAction:
+    """A meeting line without the model: answer what it was asked, work through its agenda, answer an accusation,
+    accuse with evidence, take a side, or ask.
 
     Never the same line twice in one meeting; with nothing new to say, wait.
     """
@@ -110,6 +116,12 @@ def _meeting_turn(observation: Observation, beliefs: dict[str, dict[str, Any]], 
         return player in lower and any(word in lower for word in _ACCUSING)
 
     lines: list[tuple[str, str, tuple[str, ...]]] = []
+    for question in questions_for(observation):
+        lines.append((f"{question.asker}, I was in {me.room.replace('_', ' ')}.", "ANSWER", ()))
+    for item in agenda:
+        if not item["done"]:
+            lines.append((item["text"], "TELL" if item["kind"] == "tell" else "QUESTION",
+                          tuple(e for e in item["evidence"] if e in recalled_ids)))
     accusers = [m.speaker for m in chat if m.speaker != agent and accuses(m.text, agent)]
     if accusers:
         lines.append((f"{accusers[-1]}, it wasn't me. I was in {me.room.replace('_', ' ')}.", "DEFEND", ()))

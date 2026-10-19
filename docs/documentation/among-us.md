@@ -195,9 +195,22 @@ in a few words (`VENT electrical (anyone in the room sees you)`). The model answ
 between what was said and what it saw (`hawk says they were in medbay; you saw hawk in electrical at
 t20 (m5)`), its suspects and trust with reasons. The model may think first; only the last lines
 count: `SAY … | m2 m5`, `VOTE <player> | …`, `SKIP` or `WAIT`, and optionally `MIND hawk+ nova- echo=`
+(memory numbers and ticks never reach the chat; memories are told in plain time — "just now",
+"a little while ago", "earlier"). While voting is open the agent may talk or vote; the server asks
+for the vote alone only shortly before the meeting ends
 — how its view of the others changed. A contradiction and a `MIND` verdict both become **conclusions**:
 memories of their own (`JUDGED`), weighed in the beliefs and forgotten like any other memory, so
 what the meeting settled carries into the game turns that follow.
+
+**Agenda** (`among_us/agenda.py`). During the round every turn keeps what the agent wants to bring
+to the next meeting, already worded as the line it would say: things to **tell** ("I saw hawk in
+electrical just before nova's body was found there.", a kill, a vent, a shapeshift, someone to vouch
+for) and things to **ask** ("hawk, what were you doing in electrical?", a suspect's whereabouts). Each
+point rests on memories and goes when they are forgotten. At the table the meeting turn shows the
+questions others put to the agent and it has not answered yet, its open points, and the answers to
+its own questions set against what it saw ("— that contradicts what you saw"). The rules ask it to
+answer first, then bring up one point at a time; a point counts as made once the agent has said most
+of its words. The policy follows the same order.
 
 No JSON goes into or comes out of the model. An answer that is not understood (`no_proposal`) or not
 legal (`illegal`) is replaced by the plan's move, else the policy (`decided_by`: model, plan or

@@ -473,6 +473,7 @@ function agentDetail(agent) {
   const stance = el("div", { class: "muted" },
     el("div", { text: plan ? `Plan: ${plan.reason} → ${[plan.action, plan.target].filter(Boolean).join(" ")} (until ${plan.ends_if})` : "Plan: —" }),
     ...(agent.stance?.contradictions || []).map((c) => el("div", { class: "warn", text: `Contradiction: ${c}` })),
+    ...(agent.stance?.agenda || []).map((a) => el("div", { text: `Agenda: ${a}` })),
     el("div", { text: timings ? `Last decision: ${timings}` : "Last decision: —" }));
   return el("tr", { class: "agent-detail" }, el("td", { colspan: "9" }, el("div", { class: "columns" },
     el("div", {}, el("p", { class: "eyebrow", text: "Suspects · trust" }), beliefs.length ? suspicions : el("span", { class: "muted", text: "—" }), stance),

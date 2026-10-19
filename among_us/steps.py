@@ -26,6 +26,7 @@ import logging
 import time
 from typing import Any, ClassVar
 
+from among_us.agenda import AGENDA_SLOT, update as update_agenda
 from among_us.assess import assess, conclusions, room_claims
 from among_us.beliefs import update_beliefs
 from among_us.ego import UnknownEgo, load_ego
@@ -252,6 +253,11 @@ class AmongUsDecideStep(StepBase):
         store = ctx.store_coordinator
         recalled = state.get("recalled", [])
         beliefs = state.get("beliefs", {})
+        # What the agent wants to bring to the next meeting, kept as the round goes.
+        agenda = update_agenda(store.get_slot(AGENDA_SLOT, list) if store is not None else [], observation, recalled, beliefs)
+        if store is not None:
+            store.set_slot(AGENDA_SLOT, agenda)
+        _set_state(ctx, agenda=agenda)
         if state.get("observe_only"):
             # An observation update writes memory and beliefs; the game asks nothing. The agent may still act
             # on its own when a belief has grown strong enough.
@@ -280,7 +286,8 @@ class AmongUsDecideStep(StepBase):
             ctx,
             preferred=to_dict(assessment.preferred) if assessment.preferred else None,
             stance={"stage": assessment.stage, "suspect": assessment.suspect, "trusted": assessment.trusted,
-                    "plan": assessment.plan, "contradictions": [c.describe() for c in assessment.contradictions]},
+                    "plan": assessment.plan, "contradictions": [c.describe(observation.tick) for c in assessment.contradictions],
+                    "agenda": [item["text"] for item in agenda if not item["done"]]},
         )
         meeting = observation.phase in (Phase.MEETING, Phase.VOTING)
         if state.get("offline") or len(observation.legal_actions) <= 1 or ctx.llm is None:
@@ -288,7 +295,8 @@ class AmongUsDecideStep(StepBase):
             _lap(ctx, "decide", started)
             return StepResult(ctx=ctx, verdict="decided")
 
-        prompt = (meeting_prompt if meeting else game_prompt)(observation, ego, assessment, recalled, beliefs)
+        prompt = (meeting_prompt(observation, ego, assessment, recalled, beliefs, agenda) if meeting
+                  else game_prompt(observation, ego, assessment, recalled, beliefs))
         agent, source = state["agent_id"], state["source"]
         records = [evidence(
             record_id=f"turn:{record_id}",
@@ -351,7 +359,8 @@ class AmongUsValidateStep(StepBase):
             if preferred and LegalAction(ActionKind(preferred["action"]), preferred.get("target")) in legal:
                 action, decided_by = SemanticAction(agent, ActionKind(preferred["action"]), preferred.get("target")), "plan"
             else:
-                action, decided_by = fallback_action(observation, beliefs, {m["event_id"] for m in recalled}), "policy"
+                action, decided_by = fallback_action(observation, beliefs, {m["event_id"] for m in recalled},
+                                                     state.get("agenda", ())), "policy"
         mind = [tuple(m) for m in state.get("mind", [])] if validation.get("status") == "accepted" else []
         if mind and ctx.store_coordinator is not None and state.get("memory_slot"):
             # How the meeting changed its view of the others: conclusions it keeps, and forgets, like memories.

@@ -356,6 +356,20 @@ class AnswerTests(unittest.TestCase):
         self.assertEqual("illegal", parse_meeting("VOTE hawk", crew_observation(), {}, load_ego("sherlock")).status)
         self.assertEqual("no_proposal", parse_meeting("Hmm.", crew_observation(), {}, load_ego("sherlock")).status)
 
+    def test_memory_numbers_and_ticks_never_reach_the_chat(self) -> None:
+        refs = {"m5": "e5", "m6": "e6"}
+        answer = parse_meeting("SAY Hawk, I saw you in electrical at t20 (m5, m6). | m5", crew_observation(), refs, load_ego("sherlock"))
+        self.assertEqual("Hawk, I saw you in electrical.", answer.action.text)
+        self.assertEqual(("e5",), answer.action.evidence_ids)
+        self.assertEqual("no_proposal", parse_meeting("SAY m5 m6", crew_observation(), refs, load_ego("sherlock")).status)
+
+    def test_memories_are_told_in_plain_time(self) -> None:
+        from among_us.turn import describe
+
+        seen = {"tick": 18, "kind": "PLAYER_LEFT", "details": {"actor": "hawk", "room": "electrical"}, "certainty": 0.9}
+        self.assertEqual("hawk left in electrical, just now (sure)", describe(seen, 20))
+        self.assertNotRegex(describe(seen, 60), r"\bt\d+")
+
     def test_long_statements_are_cut_to_the_ego(self) -> None:
         answer = parse_meeting("SAY " + "word " * 100, crew_observation(), {}, load_ego("bubbles"))
         self.assertLessEqual(len(answer.action.text.split()), load_ego("bubbles").voice.max_words + 1)
@@ -1101,3 +1115,63 @@ class AssessmentTests(unittest.TestCase):
         self.assertNotIn("{", view)
         self.assertRegex(view, r"Options:\n1 ")
         self.assertEqual({"perceive", "remember", "believe", "decide", "model", "validate"}, set(result["timings"]))
+
+
+class AgendaTests(unittest.TestCase):
+    """What an agent experiences becomes points to tell and to ask; at the table it answers, tells, asks, weighs."""
+
+    seen = {"event_id": "e1", "tick": 10, "kind": "PLAYER_LEFT", "details": {"actor": "hawk", "room": "electrical"}, "certainty": 0.9}
+    body = {"event_id": "e2", "tick": 14, "kind": "BODY_FOUND", "details": {"target": "nova", "room": "electrical"}, "certainty": 1.0}
+
+    def _meeting(self, *chat: tuple[str, str]) -> Observation:
+        return crew_observation(tick=15, roster=("sherlock", "hawk", "nova", "echo"),
+                                meeting_chat=tuple(ChatMessage(s, t) for s, t in chat))
+
+    def test_a_round_leaves_points_to_tell_and_to_ask(self) -> None:
+        from among_us.agenda import update
+
+        items = update([], self._meeting(), [self.seen, self.body], {})
+        self.assertEqual(
+            [("tell", "I saw hawk in electrical just before nova's body was found there."), ("ask", "hawk, what were you doing in electrical?")],
+            [(i["kind"], i["text"]) for i in items])
+        self.assertEqual([], update(items, self._meeting(), [], {}), "forgetting the memories drops the points")
+
+    def test_what_was_said_is_settled_and_answers_are_weighed(self) -> None:
+        from among_us.agenda import replies, update
+
+        items = update([], self._meeting(), [self.seen, self.body], {})
+        chat = self._meeting(("sherlock", "hawk, what were you doing in electrical?"), ("hawk", "I was in admin the whole time."))
+        items = update(items, chat, [self.seen, self.body], {})
+        self.assertEqual({"ask": True, "tell": False}, {i["kind"]: i["done"] for i in items}, "only what was said is settled")
+        [reply] = replies(items, chat, [self.seen, self.body])
+        self.assertEqual(("hawk", "contradicts", "electrical"), (reply.player, reply.verdict, reply.seen))
+
+    def test_a_question_put_to_the_agent_is_answered_first(self) -> None:
+        from among_us.agenda import questions_for, update
+
+        recalled = [self.seen, self.body]
+        asked = self._meeting(("hawk", "Sherlock, where were you?"))
+        self.assertEqual(["hawk"], [q.asker for q in questions_for(asked)])
+        agenda = update([], asked, recalled, {})
+        self.assertEqual("hawk, I was in cafeteria.", fallback_action(asked, {}, {"e1", "e2"}, agenda).text)
+
+        # Answering hawk does not settle the point about hawk: that comes next.
+        answered = self._meeting(("hawk", "Sherlock, where were you?"), ("sherlock", "hawk, I was in cafeteria."))
+        self.assertEqual([], questions_for(answered))
+        agenda = update(agenda, answered, recalled, {})
+        self.assertEqual("I saw hawk in electrical just before nova's body was found there.",
+                         fallback_action(answered, {}, {"e1", "e2"}, agenda).text)
+
+    def test_the_meeting_turn_shows_the_agenda_and_the_questions(self) -> None:
+        from among_us.agenda import update
+        from among_us.assess import assess
+        from among_us.turn import meeting_prompt
+
+        observation = self._meeting(("hawk", "Sherlock, where were you?"))
+        agenda = update([], observation, [self.seen, self.body], {})
+        prompt = meeting_prompt(observation, load_ego("sherlock"), assess(observation, {}, [self.seen, self.body], load_ego("sherlock"), None),
+                                [self.seen, self.body], {}, agenda)
+        text = "\n".join(t for _, t, _ in prompt.context)
+        self.assertIn("Tell: I saw hawk in electrical just before nova's body was found there.", text)
+        self.assertIn('Asked of you, not answered yet: hawk: "Sherlock, where were you?"', text)
+        self.assertIn("First answer what you were asked", prompt.rules)

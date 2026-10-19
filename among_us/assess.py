@@ -41,9 +41,11 @@ class Contradiction:
     tick: int
     memory_id: str
 
-    def describe(self) -> str:
+    def describe(self, now: int | None = None) -> str:
         whom = "they were" if self.player == self.speaker else f"{self.player} was"
-        return f"{self.speaker} says {whom} in {_room(self.said)}; you saw {self.player} in {_room(self.seen)} at t{self.tick}"
+        age = now - self.tick if now is not None else None
+        ago = "" if age is None else " just now" if age <= 3 else " a little while ago" if age <= 15 else " earlier"
+        return f"{self.speaker} says {whom} in {_room(self.said)}; you saw {self.player} in {_room(self.seen)}{ago}"
 
 
 @dataclass
