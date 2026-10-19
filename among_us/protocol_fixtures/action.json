@@ -9,5 +9,6 @@
   "goal": "INVESTIGATE",
   "evidence_ids": [
     "e0001"
-  ]
+  ],
+  "then": null
 }

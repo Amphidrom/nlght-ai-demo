@@ -43,6 +43,7 @@ from among_us.protocol import (
     EventKind,
     GameEnded,
     GameStarted,
+    LegalAction,
     LobbyRegistered,
     LobbyRegistration,
     Observation,
@@ -461,7 +462,9 @@ class LobbyRegistry:
         record.append({**decision_entry(record, observation, result, mode, action),
                        "request_id": request.request_id, "accepted": None, "rejection": None,
                        "latency_ms": agent.last_latency_ms})
-        self._send(lobby, ActionMessage(request.request_id, action))
+        then = result.get("then")
+        after = LegalAction(ActionKind(then["action"]), then.get("target")) if then else None
+        self._send(lobby, ActionMessage(request.request_id, action, after))
 
     @staticmethod
     def _remember(agent: LobbyAgent, result: dict[str, Any]) -> None:

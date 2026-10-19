@@ -71,6 +71,8 @@ _STATE = "among_us"
 
 #: The plan the agent holds across turns (``assess.py``), per match.
 PLAN_SLOT = "among_us:plan"
+#: Who the agent knows for certain to be dead — whoever was missing at a meeting table. Not a memory: never forgotten.
+DEAD_SLOT = "among_us:dead"
 
 
 def _state(ctx: WorkflowStepContext) -> dict[str, Any]:
@@ -253,8 +255,10 @@ class AmongUsDecideStep(StepBase):
         store = ctx.store_coordinator
         recalled = state.get("recalled", [])
         beliefs = state.get("beliefs", {})
+        known_dead = list(store.get_slot(DEAD_SLOT, list)) if store is not None else []
         # What the agent wants to bring to the next meeting, kept as the round goes.
-        agenda = update_agenda(store.get_slot(AGENDA_SLOT, list) if store is not None else [], observation, recalled, beliefs)
+        agenda = update_agenda(store.get_slot(AGENDA_SLOT, list) if store is not None else [], observation, recalled, beliefs,
+                               known_dead)
         if store is not None:
             store.set_slot(AGENDA_SLOT, agenda)
         _set_state(ctx, agenda=agenda)
@@ -274,8 +278,10 @@ class AmongUsDecideStep(StepBase):
             return StepResult(ctx=ctx, verdict="done")
 
         held_plan = (store.get_slot(PLAN_SLOT, dict) or None) if store is not None else None
-        assessment = assess(observation, beliefs, recalled, ego, held_plan)
+        assessment = assess(observation, beliefs, recalled, ego, held_plan, known_dead)
         if store is not None:
+            if observation.phase in (Phase.MEETING, Phase.VOTING):
+                store.set_slot(DEAD_SLOT, sorted(set(known_dead) | set(assessment.dead)))
             if observation.phase is Phase.TASKS:
                 store.set_slot(PLAN_SLOT, assessment.plan or {})
             # A contradiction it noticed is a conclusion the agent keeps: it shapes the next turns too.
@@ -319,6 +325,8 @@ class AmongUsDecideStep(StepBase):
         _set_state(
             ctx,
             answer=to_dict(answer.action) if answer.action else None,
+            then=to_dict(answer.then) if answer.then else None,
+            back_to_tasks=answer.back_to_tasks,
             mind=[list(m) for m in answer.mind],
             validation={"status": answer.status, **({"reason": answer.reason} if answer.reason else {})},
             decided_by="model",
@@ -368,6 +376,15 @@ class AmongUsValidateStep(StepBase):
             traces = [judgement(agent, f"mind:{observation.tick}:{player}", observation.tick, player, verdict)
                       for player, verdict in mind]
             ctx.store_coordinator.set_slot(slot, keep(ctx.store_coordinator.get_slot(slot, _empty(slot)), traces))
+        # Decided at the table: what to do once the meeting ends. It becomes the plan, so the next turns keep to it.
+        then = state.get("then") if validation.get("status") == "accepted" else None
+        if ctx.store_coordinator is not None and (then or state.get("back_to_tasks")):
+            target = then.get("target") if then else None
+            ctx.store_coordinator.set_slot(PLAN_SLOT, {
+                "tactic": "agreed", "action": then["action"], "target": target, "since": observation.tick,
+                "reason": "you decided it at the meeting" + (f": stay with {target}" if target else ""),
+                "ends_if": f"{target} looks suspicious or dies" if target else "something happens",
+            } if then else {})
         claims = []
         if action.action is ActionKind.SAY and action.text:
             rooms = set(ROOMS) | {m["details"]["room"] for m in recalled if m["details"].get("room")}
@@ -381,6 +398,7 @@ class AmongUsValidateStep(StepBase):
             # Where the statement puts whom; only the evaluation compares it with the truth.
             "claims": claims,
             "mind": [list(m) for m in mind],
+            "then": then,
             "stance": state.get("stance"),
             "memory": state.get("memory", {}),
             "context": state.get("context"),

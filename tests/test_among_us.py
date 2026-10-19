@@ -32,6 +32,7 @@ from among_us.protocol import (
     SeatedAgent,
     SelfState,
     SemanticAction,
+    Situation,
     VisiblePlayer,
     decode,
     encode,
@@ -1006,7 +1007,7 @@ class MeetingConversationTests(unittest.TestCase):
 
     def test_an_impostor_never_piles_onto_its_partner(self) -> None:
         action = fallback_action(self._meeting(("hawk", "nova is sus."), role=Role.IMPOSTOR, partners=("nova",)), {}, set())
-        self.assertNotIn("agree", action.text.lower())
+        self.assertNotIn("agree", (action.text or "").lower())
 
     def test_no_line_twice_then_silence(self) -> None:
         said: list[tuple[str, str]] = []
@@ -1175,3 +1176,78 @@ class AgendaTests(unittest.TestCase):
         self.assertIn("Tell: I saw hawk in electrical just before nova's body was found there.", text)
         self.assertIn('Asked of you, not answered yet: hawk: "Sherlock, where were you?"', text)
         self.assertIn("First answer what you were asked", prompt.rules)
+
+
+class MeetingSenseTests(unittest.TestCase):
+    """Times matter, the dead are out, votes need reasons, and the meeting decides what comes after it."""
+
+    def test_an_earlier_sighting_does_not_make_a_liar(self) -> None:
+        from among_us.assess import contradictions
+
+        body = {"event_id": "b", "tick": 30, "kind": "BODY_FOUND", "details": {"target": "nova", "room": "admin"}, "certainty": 1.0}
+        earlier = {"event_id": "e", "tick": 12, "kind": "PLAYER_LEFT", "details": {"actor": "hawk", "room": "electrical"}, "certainty": 1.0}
+        then = {"event_id": "n", "tick": 28, "kind": "PLAYER_LEFT", "details": {"actor": "hawk", "room": "electrical"}, "certainty": 1.0}
+        meeting = crew_observation(tick=31, roster=("sherlock", "hawk", "echo"),
+                                   meeting_chat=(ChatMessage("hawk", "I was in medbay."),))
+        self.assertEqual([], contradictions(meeting, [body, earlier]), "hours apart, both can be true")
+        self.assertEqual(["n"], [c.memory_id for c in contradictions(meeting, [body, then])])
+
+    def test_whoever_is_not_at_the_table_is_dead_and_off_the_agenda(self) -> None:
+        from among_us.agenda import update
+        from among_us.assess import assess
+
+        meeting = crew_observation(roster=("sherlock", "hawk", "nova", "echo"),
+                                   visible_players=(VisiblePlayer("hawk", "meeting"), VisiblePlayer("echo", "meeting")))
+        result = assess(meeting, {}, [], load_ego("sherlock"), None)
+        self.assertEqual((["echo", "hawk", "sherlock"], ["nova"]), (result.alive, result.dead))
+        item = {"id": "ask:nova", "kind": "ask", "about": "nova", "text": "nova, where were you?", "evidence": [], "rank": 3, "done": False}
+        self.assertEqual([], update([item], meeting, [], {}, dead=result.dead))
+
+    def test_the_meeting_decides_what_comes_after_it(self) -> None:
+        meeting = crew_observation(roster=("sherlock", "echo"), visible_players=(VisiblePlayer("echo", "meeting"),))
+        answer = parse_meeting("SAY Echo, let's stick together.\nMIND echo=\nNEXT FOLLOW Echo", meeting, {}, load_ego("sherlock"))
+        self.assertEqual(LegalAction(ActionKind.FOLLOW, "echo"), answer.then)
+        self.assertEqual((("echo", "trust"),), answer.mind)
+        self.assertTrue(parse_meeting("WAIT\nNEXT TASKS", meeting, {}, load_ego("sherlock")).back_to_tasks)
+        self.assertIsNone(parse_meeting("WAIT\nNEXT FOLLOW nova", meeting, {}, load_ego("sherlock")).then, "only someone at the table")
+
+    def test_then_travels_with_the_answer(self) -> None:
+        from among_us.protocol import ActionMessage
+
+        message = ActionMessage("r1", SemanticAction("sherlock", ActionKind.SAY, text="Let's stick together."), LegalAction(ActionKind.FOLLOW, "echo"))
+        self.assertEqual(message, decode(encode(message)))
+        self.assertEqual({"action": "FOLLOW", "target": "echo"}, json.loads(encode(message))["then"])
+
+
+
+class EmergencyMeetingTests(unittest.TestCase):
+    """An emergency meeting needs something new seen since the last one, not the talk of the last meeting."""
+
+    def _idle_crewmate(self, since_meeting: int) -> Observation:
+        return Observation(
+            agent_id="sherlock", tick=40, phase=Phase.TASKS, self_state=SelfState("sherlock", "cafeteria", Role.CREWMATE),
+            legal_actions=(LegalAction(ActionKind.CALL_MEETING), LegalAction(ActionKind.WAIT)), roster=("sherlock", "hawk", "echo"),
+            situation=Situation(emergencies_left=1, since_meeting=since_meeting),
+        )
+
+    def _beliefs(self, *ids: str) -> dict[str, dict[str, Any]]:
+        return {"hawk": {"suspicion": 0.9, "trust": 0.0, "evidence_ids": list(ids)}}
+
+    def test_talk_and_conclusions_from_the_last_meeting_call_no_new_one(self) -> None:
+        from among_us.assess import assess
+        from among_us.initiative import initiative_action
+
+        said = {"event_id": "c1", "tick": 30, "kind": "CHAT", "details": {"actor": "echo", "text": "hawk is sus"}, "certainty": 1.0}
+        judged = {"event_id": "sherlock:judged:x", "tick": 30, "kind": "JUDGED", "details": {"target": "hawk", "text": "+"}, "certainty": 1.0}
+        observation = self._idle_crewmate(since_meeting=5)
+        self.assertNotEqual("accuse", (assess(observation, self._beliefs("c1", "sherlock:judged:x"), [said, judged], load_ego("maverick"), None).plan or {}).get("tactic"))
+        self.assertIsNone(initiative_action(observation, self._beliefs("c1", "sherlock:judged:x"), [said, judged], load_ego("maverick"), {})[0])
+
+    def test_a_vent_seen_since_the_last_meeting_does(self) -> None:
+        from among_us.assess import assess
+
+        vent = {"event_id": "v1", "tick": 38, "kind": "VENT_SEEN", "details": {"actor": "hawk", "room": "admin"}, "certainty": 1.0}
+        self.assertEqual("accuse", assess(self._idle_crewmate(since_meeting=5), self._beliefs("v1"), [vent], load_ego("maverick"), None).plan["tactic"])
+        old = {**vent, "tick": 20}
+        self.assertNotEqual("accuse", (assess(self._idle_crewmate(since_meeting=5), self._beliefs("v1"), [old], load_ego("maverick"), None).plan or {}).get("tactic"),
+                            "seen before the last meeting: that meeting was the place for it")

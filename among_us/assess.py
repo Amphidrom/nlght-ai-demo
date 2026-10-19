@@ -27,8 +27,9 @@ _SIGHTINGS = (
     EventKind.PLAYER_ENTERED.value, EventKind.PLAYER_LEFT.value, EventKind.TASK_SEEN.value,
     EventKind.VENT_SEEN.value, EventKind.KILL_WITNESSED.value,
 )
-#: Ticks looked back for contradictions when the time since the last meeting is unknown.
-_RECENT = 30
+#: A sighting speaks against a claim only about the same moment: this many ticks before the body was found or
+#: the meeting called. Earlier sightings are just where someone was earlier — people move.
+_SAME_MOMENT = 4
 _SUSPECT = 0.5
 
 
@@ -56,6 +57,8 @@ class Assessment:
     suspect: str | None
     trusted: list[str]
     contradictions: list[Contradiction] = field(default_factory=list)
+    #: In a meeting: where the agent last saw each player before it, and when (tick).
+    last_seen: dict[str, tuple[str, int]] = field(default_factory=dict)
     #: The move the plan calls for now, if one is legal.
     preferred: LegalAction | None = None
     #: The plan held across turns: tactic, action, target, reason, ends_if, since.
@@ -68,10 +71,17 @@ def assess(
     recalled: Sequence[dict[str, Any]],
     ego: EgoProfile,
     plan: dict[str, Any] | None,
+    known_dead: Iterable[str] = (),
 ) -> Assessment:
     me = observation.self_state
-    dead = sorted({m["details"].get("target") for m in recalled if m["kind"] in _DEATHS} - {None})
-    alive = sorted(set(observation.roster) - set(dead))
+    meeting = observation.phase in (Phase.MEETING, Phase.VOTING)
+    if meeting:
+        # At the table it is certain: whoever is not sitting there is out of the game.
+        alive = sorted({p.player_id for p in observation.visible_players} | {observation.agent_id})
+        dead = sorted(set(observation.roster) - set(alive))
+    else:
+        dead = sorted(({m["details"].get("target") for m in recalled if m["kind"] in _DEATHS} | set(known_dead)) - {None})
+        alive = sorted(set(observation.roster) - set(dead))
     suspects = [(b["suspicion"], p) for p, b in beliefs.items() if p in alive and b["suspicion"] >= _SUSPECT]
     suspect = max(suspects)[1] if suspects else None
     trusted = sorted((p for p, b in beliefs.items() if p in alive and b.get("trust", 0) >= ego.judgement.trust_at
@@ -84,11 +94,12 @@ def assess(
     else:
         stage = "mid"
     result = Assessment(alive, dead, stage, suspect, trusted)
-    if observation.phase in (Phase.MEETING, Phase.VOTING):
+    if meeting:
         result.contradictions = contradictions(observation, recalled)
+        result.last_seen = last_seen(observation, recalled)
         return result
     if observation.phase is Phase.TASKS and me.alive:
-        _choose(observation, beliefs, ego, result, plan)
+        _choose(observation, beliefs, ego, result, plan, recalled)
     return result
 
 
@@ -119,10 +130,43 @@ def room_claims(text: str, speaker: str, players: Iterable[str], rooms: Iterable
     return claims
 
 
-def contradictions(observation: Observation, recalled: Sequence[dict[str, Any]]) -> list[Contradiction]:
+#: Seen with one's own eyes and damning: what can justify an emergency meeting. Talk, votes and one's own
+#: conclusions cannot — they are what meetings produce, and would call the next one.
+_HARD_EVIDENCE = frozenset({"KILL_WITNESSED", "VENT_SEEN", "SHAPESHIFT_SEEN", "VANISH_SEEN", "APPEAR_SEEN"})
+
+
+def fresh_evidence(observation: Observation, recalled: Sequence[dict[str, Any]], ids: Iterable[str]) -> list[str]:
+    """Those of ``ids`` that are hard evidence the agent saw since the last meeting."""
+
     since = observation.situation.since_meeting
-    start = observation.tick - (since if since is not None else _RECENT)
-    sightings = [m for m in recalled if m["kind"] in _SIGHTINGS and m["details"].get("room") and int(m["tick"]) >= start]
+    start = observation.tick - since if since is not None else 0
+    wanted = set(ids)
+    return sorted(m["event_id"] for m in recalled
+                  if m["event_id"] in wanted and m["kind"] in _HARD_EVIDENCE and int(m["tick"]) >= start)
+
+
+def moment(observation: Observation, recalled: Sequence[dict[str, Any]]) -> int:
+    """The moment a meeting is about: when the body was found, else when the meeting was called."""
+
+    marks = [int(m["tick"]) for m in recalled if m["kind"] in ("BODY_FOUND", "MEETING_CALLED") and int(m["tick"]) <= observation.tick]
+    return max(marks, default=observation.tick)
+
+
+def last_seen(observation: Observation, recalled: Sequence[dict[str, Any]]) -> dict[str, tuple[str, int]]:
+    seen: dict[str, tuple[str, int]] = {}
+    for m in sorted(recalled, key=lambda m: int(m["tick"])):
+        actor, room = m["details"].get("actor"), m["details"].get("room")
+        if m["kind"] in _SIGHTINGS and actor and room and actor != observation.agent_id:
+            seen[actor] = (room, int(m["tick"]))
+    return seen
+
+
+def contradictions(observation: Observation, recalled: Sequence[dict[str, Any]]) -> list[Contradiction]:
+    """Claims in the chat that what the agent saw at the same moment speaks against — not merely an earlier place."""
+
+    at = moment(observation, recalled)
+    sightings = [m for m in recalled if m["kind"] in _SIGHTINGS and m["details"].get("room")
+                 and at - _SAME_MOMENT <= int(m["tick"]) <= at]
     rooms = set(ROOMS) | {m["details"]["room"] for m in sightings}
     found: dict[tuple[str, str], Contradiction] = {}
     for message in observation.meeting_chat:
@@ -145,11 +189,11 @@ def _room(room: str) -> str:
 
 
 def _choose(observation: Observation, beliefs: dict[str, dict[str, Any]], ego: EgoProfile, result: Assessment,
-            plan: dict[str, Any] | None) -> None:
+            plan: dict[str, Any] | None, recalled: Sequence[dict[str, Any]]) -> None:
     legal = set(observation.legal_actions)
     held = _still_valid(plan, observation, beliefs, legal)
     choose = _impostor if observation.self_state.role is Role.IMPOSTOR else _crew
-    tactic = choose(observation, beliefs, ego, result, _kept(plan) if held else None, legal)
+    tactic = choose(observation, beliefs, ego, result, _kept(plan) if held else None, legal, recalled)
     if tactic is None:
         result.plan = None
         return
@@ -175,6 +219,9 @@ def _still_valid(plan: dict[str, Any] | None, observation: Observation, beliefs:
         return suspicion >= _SUSPECT - 0.1
     if plan["tactic"] == "stalk":
         return observation.self_state.kill_ready
+    if plan["tactic"] == "agreed":
+        # Agreed at the table: holds while the partner stays trustworthy.
+        return action.action is not ActionKind.FOLLOW or suspicion < _SUSPECT
     return plan["tactic"] in ("watch", "blend") and bool(observation.visible_players)
 
 
@@ -190,7 +237,7 @@ def _kept(plan: dict[str, Any] | None) -> Tactic | None:
 
 
 def _crew(observation: Observation, beliefs: dict[str, dict[str, Any]], ego: EgoProfile, result: Assessment,
-          kept: Tactic | None, legal: set[LegalAction]) -> Tactic | None:
+          kept: Tactic | None, legal: set[LegalAction], recalled: Sequence[dict[str, Any]]) -> Tactic | None:
     me = observation.self_state
     visible = {p.player_id for p in observation.visible_players}
 
@@ -203,9 +250,12 @@ def _crew(observation: Observation, beliefs: dict[str, dict[str, Any]], ego: Ego
     for system in (observation.alarm, *observation.outages):
         if system and (fix := can(ActionKind.MOVE_TO, SABOTAGE_ROOMS.get(system))):
             return "fix", fix, f"{system} is sabotaged", "fixed"
-    if result.suspect and beliefs[result.suspect]["suspicion"] >= ego.judgement.call_meeting_at and (call := can(ActionKind.CALL_MEETING)):
-        return "accuse", call, f"you are sure enough about {result.suspect}", "the meeting starts"
-    if kept and kept[0] in ("escort", "shadow", "watch"):
+    # An emergency meeting needs something new seen since the last one — never just the talk of the last meeting.
+    if (result.suspect and beliefs[result.suspect]["suspicion"] >= ego.judgement.call_meeting_at
+            and fresh_evidence(observation, recalled, beliefs[result.suspect]["evidence_ids"])
+            and (call := can(ActionKind.CALL_MEETING))):
+        return "accuse", call, f"you saw something about {result.suspect} since the last meeting", "the meeting starts"
+    if kept and kept[0] in ("agreed", "escort", "shadow", "watch"):
         return kept
     escort = next((p for p in result.trusted if p in visible and can(ActionKind.FOLLOW, p)), None)
     lonely = result.stage == "late" and ego.judgement.group_affinity >= 0.5
@@ -228,7 +278,7 @@ def _crew(observation: Observation, beliefs: dict[str, dict[str, Any]], ego: Ego
 
 
 def _impostor(observation: Observation, beliefs: dict[str, dict[str, Any]], ego: EgoProfile, result: Assessment,
-              kept: Tactic | None, legal: set[LegalAction]) -> Tactic | None:
+              kept: Tactic | None, legal: set[LegalAction], recalled: Sequence[dict[str, Any]]) -> Tactic | None:
     me = observation.self_state
     crew = [p.player_id for p in observation.visible_players if p.player_id not in me.known_impostors]
 
@@ -243,7 +293,7 @@ def _impostor(observation: Observation, beliefs: dict[str, dict[str, Any]], ego:
     kills = first(ActionKind.KILL)
     if me.kill_ready and len(crew) == 1 and kills:
         return "strike", LegalAction(ActionKind.KILL, kills[0]), f"you are alone with {kills[0]}", "done"
-    if kept and kept[0] in ("stalk", "blend"):
+    if kept and kept[0] in ("agreed", "stalk", "blend"):
         return kept
     if me.kill_ready and crew and len(crew) <= 2 and ego.judgement.boldness >= 0.4:
         victim = sorted(crew, key=lambda p: beliefs.get(p, {}).get("trust", 0.0))[0]

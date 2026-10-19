@@ -202,6 +202,17 @@ for the vote alone only shortly before the meeting ends
 memories of their own (`JUDGED`), weighed in the beliefs and forgotten like any other memory, so
 what the meeting settled carries into the game turns that follow.
 
+**At the table.** Whoever is not sitting at the meeting table is dead: the agent knows it for certain
+and keeps it for the rest of the match (Hive Mind slot `among_us:dead`, never forgotten), and its
+agenda drops anything about them. A claim and a sighting only clash if both concern the same moment —
+the few ticks before the body was found or the meeting was called; where the agent saw someone
+earlier is listed as "where you last saw them", not held against them. The rules ask to vote only
+when memories and discussion clearly point to someone, else to skip. A meeting turn may end with
+`NEXT FOLLOW <player>`, `NEXT GUARD` or `NEXT TASKS`: what the agent does once the meeting ends. It
+goes to the server with the answer (`then`), so the bot sets off at once, and becomes the agent's
+plan (`agreed`) — two agents that trust each other can agree to stick together, one leading, one
+following.
+
 **Agenda** (`among_us/agenda.py`). During the round every turn keeps what the agent wants to bring
 to the next meeting, already worded as the line it would say: things to **tell** ("I saw hawk in
 electrical just before nova's body was found there.", a kill, a vent, a shapeshift, someone to vouch
@@ -231,7 +242,8 @@ silent instead of repeating a line.
 **Initiative.** After every observation, `among_us/initiative.py` asks — without the model — whether a
 belief has grown strong enough to act on before the game asks. A crewmate whose suspicion of a
 living player reaches its ego's `judgement.call_meeting_at` calls an emergency meeting, citing the
-memories behind it; evidence it already acted on never triggers a second call (Hive Mind slot
+memories behind it; only hard evidence it saw itself since the last meeting counts (a kill, a vent, a change of shape) —
+never the talk or conclusions of the last meeting, which would otherwise call the next one; evidence it already acted on never triggers a second call (Hive Mind slot
 `among_us:initiative`, per match). The thresholds differ by temperament — Maverick 0.45, Hawk 0.5,
 Sherlock 0.75, Sage 0.9, Echo and Rookie 0.95 — so the same evidence makes one agent press the button
 and leaves another waiting for the next meeting. Each initiative is an `initiative` entry in the match

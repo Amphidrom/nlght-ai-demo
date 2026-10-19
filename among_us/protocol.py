@@ -288,10 +288,15 @@ class DecisionRequest:
 
 @dataclass(frozen=True)
 class ActionMessage:
-    """Orchestrator → server: an action, answering ``request_id`` or (null) on the agent's own initiative."""
+    """Orchestrator → server: an action, answering ``request_id`` or (null) on the agent's own initiative.
+
+    ``then`` is what the agent does once the meeting it is speaking in ends, decided at the table so it sets off
+    at once (FOLLOW a player, GUARD); null: back to its tasks.
+    """
 
     request_id: str | None
     action: SemanticAction
+    then: LegalAction | None = None
 
 
 @dataclass(frozen=True)
@@ -339,7 +344,8 @@ def encode(message: Any) -> str:
         raise ProtocolError(f"not a protocol message: {type(message).__name__}")
     if isinstance(message, ActionMessage):
         # Flat on the wire: the action's fields next to the request it answers.
-        body = {"request_id": message.request_id, **to_dict(message.action)}
+        body = {"request_id": message.request_id, **to_dict(message.action),
+                "then": to_dict(message.then) if message.then else None}
     else:
         body = to_dict(message)
     return json.dumps({"type": kind, "protocol": PROTOCOL_VERSION, **body}, ensure_ascii=False)
@@ -422,7 +428,12 @@ def _decision_request(body: dict[str, Any]) -> DecisionRequest:
 def _action_message(body: dict[str, Any]) -> ActionMessage:
     body = dict(body)
     request_id = _optional_str(body.pop("request_id", None), "action.request_id")
-    return ActionMessage(request_id, action_from_dict(body))
+    raw_then = body.pop("then", None)
+    then = None
+    if raw_then is not None:
+        item = _exact(raw_then, LegalAction)
+        then = LegalAction(_enum(ActionKind, item.get("action"), "action.then"), _optional_str(item.get("target"), "action.then.target"))
+    return ActionMessage(request_id, action_from_dict(body), then)
 
 
 def _action_result(body: dict[str, Any]) -> ActionResult:

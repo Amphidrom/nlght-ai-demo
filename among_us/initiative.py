@@ -5,8 +5,9 @@ memory and beliefs, and a belief can grow strong enough to act on before the gam
 decides that — deterministically, per ego, without the model:
 
 - A crewmate whose suspicion of a living player reaches its ego's ``call_meeting_at`` calls an
-  emergency meeting and cites the memories behind the suspicion. The same memories never trigger a
-  second call: only evidence the agent has not acted on yet does.
+  emergency meeting and cites the memories behind the suspicion — but only for hard evidence it saw
+  itself since the last meeting (a kill, a vent, a change of shape), never for what was said or
+  concluded at the last one. The same memories never trigger a second call.
 
 Only an action the observation lists as legal is proposed; the server checks it once more against
 the game as it is when the action arrives.
@@ -17,6 +18,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from among_us.assess import fresh_evidence
 from among_us.ego import EgoProfile
 from among_us.protocol import ActionKind, EventKind, LegalAction, Observation, Phase, Role, SemanticAction
 
@@ -53,7 +55,7 @@ def initiative_action(
     )
     for suspicion, suspect in candidates:
         evidence = sorted(set(beliefs[suspect]["evidence_ids"]) & recalled_ids)
-        if not set(evidence) - set(acted.get(suspect, [])):
+        if not set(fresh_evidence(observation, memories, evidence)) - set(acted.get(suspect, [])):
             continue
         action = SemanticAction(observation.agent_id, ActionKind.CALL_MEETING, goal="ACCUSE", evidence_ids=tuple(evidence))
         updated = {**acted, suspect: sorted(set(acted.get(suspect, [])) | set(evidence))}

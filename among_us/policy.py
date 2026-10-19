@@ -140,7 +140,9 @@ def _meeting_turn(observation: Observation, beliefs: dict[str, dict[str, Any]], 
         else:
             lines.append((f"{message.speaker}, what makes you sure about {target}?", "QUESTION", ()))
         break
-    lines.append((_QUESTIONS[(len(chat) + len(agent)) % len(_QUESTIONS)], "QUESTION", ()))
+    if "body" in observation.decision_reason or any(e.kind is EventKind.BODY_FOUND for e in observation.events):
+        # A general question only where there is something to find out: a body.
+        lines.append((_QUESTIONS[(len(chat) + len(agent)) % len(_QUESTIONS)], "QUESTION", ()))
     for text, goal, evidence in lines:
         if text not in said:
             return SemanticAction(agent, ActionKind.SAY, text=text, goal=goal, evidence_ids=evidence)

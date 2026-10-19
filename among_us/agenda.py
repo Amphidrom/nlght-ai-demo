@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from among_us.assess import room_claims
+from among_us.assess import _SAME_MOMENT, moment, room_claims
 from among_us.protocol import Observation, Role
 from among_us.sim.map import ROOMS
 
@@ -44,14 +44,17 @@ class Reply:
 
 
 def update(items: list[dict[str, Any]], observation: Observation, recalled: Sequence[dict[str, Any]],
-           beliefs: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    """The agenda after this turn: new items from what the agent recalls, items on forgotten memories dropped,
-    and — in a meeting — items it has spoken about settled."""
+           beliefs: dict[str, dict[str, Any]], dead: Sequence[str] = ()) -> list[dict[str, Any]]:
+    """The agenda after this turn: new items from what the agent recalls, items on forgotten memories or about the
+    dead dropped, and — in a meeting — items it has spoken about settled."""
 
     recalled_ids = {m["event_id"] for m in recalled}
-    known = {item["id"]: item for item in items if set(item["evidence"]) & recalled_ids or not item["evidence"]}
+    gone = set(dead)
+    known = {item["id"]: item for item in items
+             if (set(item["evidence"]) & recalled_ids or not item["evidence"]) and item["about"] not in gone}
     for item in _items(observation, recalled, beliefs):
-        known.setdefault(item["id"], item)
+        if item["about"] not in gone:
+            known.setdefault(item["id"], item)
     said = [m.text.lower() for m in observation.meeting_chat if m.speaker == observation.agent_id]
     for item in known.values():
         if not item["done"] and any(_covers(line, item["text"]) for line in said):
@@ -85,8 +88,11 @@ def replies(items: Sequence[dict[str, Any]], observation: Observation, recalled:
             continue
         rooms = set(ROOMS) | {m["details"]["room"] for m in recalled if m["details"].get("room")}
         claimed = [room for who, room in room_claims(answer.text, player, observation.roster, rooms) if who == player]
+        # Only what the agent saw at the moment in question speaks for or against the answer.
+        at = moment(observation, recalled)
         seen = next((m["details"]["room"] for m in sorted(recalled, key=lambda m: -int(m["tick"]))
-                     if m["kind"] in _SIGHTINGS and m["details"].get("actor") == player and m["details"].get("room")), None)
+                     if m["kind"] in _SIGHTINGS and m["details"].get("actor") == player and m["details"].get("room")
+                     and at - _SAME_MOMENT <= int(m["tick"]) <= at), None)
         verdict = "" if not claimed or seen is None else "fits" if seen in claimed else "contradicts"
         found.append(Reply(player, answer.text, verdict, seen))
     return found
