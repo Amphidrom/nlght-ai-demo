@@ -47,17 +47,15 @@ from among_us.protocol import (
     LobbyRegistration,
     Observation,
     ObservationUpdate,
+    Phase,
     SeatedAgent,
     SemanticAction,
     encode,
     to_dict,
 )
-from among_us.scheduler import DecisionScheduler, SchedulerConfig
 
 logger = logging.getLogger(__name__)
 
-#: Seconds kept back from the game's deadline for the answer to travel.
-DEADLINE_MARGIN = 2.0
 #: Players in one Among Us lobby.
 MAX_AGENTS = 15
 #: Most recent recalled memories kept per agent for the admin UI.
@@ -90,15 +88,21 @@ class LobbyAgent:
     refused: int = 0
     #: actions on the agent's own initiative: "sent", "accepted", "refused".
     initiatives: Counter[str] = field(default_factory=Counter)
-    #: The operator's model for this agent (admin UI); None: the ego's or the platform default.
+    #: The operator's models for this agent (admin UI); None: the ego's or the platform default.
     model_override: ModelChoice | None = None
-    #: The model its turns run on, resolved by the registry.
+    meeting_override: ModelChoice | None = None
+    #: The models its game and meeting turns run on, resolved by the registry.
     model: ModelChoice | None = None
     model_usable: bool = True
+    meeting_model: ModelChoice | None = None
+    meeting_model_usable: bool = True
     #: What the agent believes and recalls after its latest turn, and its memory statistics.
     beliefs: dict[str, Any] = field(default_factory=dict)
     recalled: list[dict[str, Any]] = field(default_factory=list)
     memory: dict[str, Any] = field(default_factory=dict)
+    #: Milliseconds per step of its latest decision, and its plan and stance then.
+    timings: dict[str, float] = field(default_factory=dict)
+    stance: dict[str, Any] | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     pending: asyncio.Task[None] | None = field(default=None, repr=False)
 
@@ -117,9 +121,13 @@ class LobbyAgent:
             "initiatives": dict(self.initiatives),
             "model": self.model.to_dict() if self.model else None,
             "model_usable": self.model_usable,
+            "meeting_model": self.meeting_model.to_dict() if self.meeting_model else None,
+            "meeting_model_usable": self.meeting_model_usable,
             "beliefs": self.beliefs,
             "recalled": self.recalled,
             "memory": {k: (len(v) if isinstance(v, list) else v) for k, v in self.memory.items()},
+            "timings": self.timings,
+            "stance": self.stance,
         }
 
 
@@ -170,6 +178,12 @@ class Lobby:
         }
 
 
+def _model_for(agent: LobbyAgent, observation: Observation) -> tuple[ModelChoice | None, bool]:
+    if observation.phase in (Phase.MEETING, Phase.VOTING):
+        return agent.meeting_model, agent.meeting_model_usable
+    return agent.model, agent.model_usable
+
+
 class LobbyRegistry:
     def __init__(
         self,
@@ -177,7 +191,6 @@ class LobbyRegistry:
         *,
         offline: bool = False,
         catalog: ModelCatalog | None = None,
-        scheduler: SchedulerConfig | None = None,
         on_match_started: Callable[[MatchRecord], None] | None = None,
         on_match_finished: Callable[[MatchRecord], None] | None = None,
         rng: random.Random | None = None,
@@ -185,8 +198,6 @@ class LobbyRegistry:
         self._runner = runner
         self._offline = offline
         self._catalog = catalog
-        self._scheduler_config = scheduler or SchedulerConfig()
-        self._schedulers: dict[str, DecisionScheduler] = {}
         self._on_started = on_match_started or (lambda record: None)
         self._on_finished = on_match_finished or (lambda record: None)
         self._rng = rng or random.Random()
@@ -209,7 +220,6 @@ class LobbyRegistry:
         )
         seated = self._seat(lobby, registration.count, registration.players)
         self.lobbies[lobby.lobby_id] = lobby
-        self._schedulers[lobby.lobby_id] = DecisionScheduler(self._scheduler_config, model_enabled=not self._offline)
         logger.info("among_us.lobby.registered | lobby=%s | game=%s | agents=%s",
                     lobby.lobby_id, lobby.game_code, [a.agent_id for a in seated])
         return LobbyRegistered(lobby.lobby_id, lobby._token, seated)
@@ -240,11 +250,14 @@ class LobbyRegistry:
         lobby.notify()
         return tuple(seated)
 
-    def set_model(self, lobby: Lobby, agent_id: str, choice: ModelChoice | None) -> LobbyAgent:
-        """The operator's model for one agent (None: back to its ego's or the platform default); from its next turn on."""
+    def set_model(self, lobby: Lobby, agent_id: str, choice: ModelChoice | None, *, meeting: bool = False) -> LobbyAgent:
+        """The operator's model for one agent's game or meeting turns (None: back to the default); from its next turn on."""
 
         agent = self._agent(lobby, agent_id)
-        agent.model_override = choice
+        if meeting:
+            agent.meeting_override = choice
+        else:
+            agent.model_override = choice
         self._resolve_model(agent)
         lobby.notify()
         logger.info("among_us.lobby.model | lobby=%s | agent=%s | %s", lobby.lobby_id, agent_id, agent.model)
@@ -253,9 +266,18 @@ class LobbyRegistry:
     def _resolve_model(self, agent: LobbyAgent) -> None:
         if self._catalog is None:
             agent.model, agent.model_usable = agent.model_override, True
+            agent.meeting_model, agent.meeting_model_usable = agent.meeting_override or agent.model_override, True
             return
-        agent.model = self._catalog.resolve(load_ego(agent.seat.ego), agent.model_override)
+        ego = load_ego(agent.seat.ego)
+        agent.model = self._catalog.resolve(ego, agent.model_override)
+        if agent.meeting_override is not None:
+            agent.meeting_model = agent.meeting_override
+        elif ego.model is not None and ego.model.meeting is not None:
+            agent.meeting_model = self._catalog.resolve(ego, meeting=True)
+        else:
+            agent.meeting_model = agent.model   # no meeting model of its own: the game model weighs there too
         agent.model_usable = self._catalog.usable(agent.model)
+        agent.meeting_model_usable = self._catalog.usable(agent.meeting_model)
 
     def lobby(self, lobby_id: str, token: str | None = None) -> Lobby:
         """The lobby; with ``token``, only if the token is that lobby's."""
@@ -370,7 +392,8 @@ class LobbyRegistry:
 
     def _payload(self, record: MatchRecord, observation: Observation, lobby: Lobby, **flags: bool) -> dict[str, Any]:
         agent = lobby.agents[observation.agent_id]
-        model = {"model_provider": agent.model.provider, "model": agent.model.model} if agent.model and agent.model_usable else {}
+        choice, usable = _model_for(agent, observation)
+        model = {"model_provider": choice.provider, "model": choice.model} if choice and usable else {}
         return {
             **model,
             "match_id": record.match_id,
@@ -409,26 +432,24 @@ class LobbyRegistry:
         observation = request.observation
         if record is None or observation.agent_id not in record.egos:
             return
-        scheduler = self._schedulers[lobby.lobby_id]
-
-        async def turn(obs: Observation, use_model: bool) -> dict[str, Any]:
+        async def turn(use_model: bool) -> dict[str, Any]:
             return await self._runner.decide(
-                agent_id=obs.agent_id,
-                session_key=session_key(record.match_id, obs.agent_id),
-                payload=self._payload(record, obs, lobby, offline=not use_model),
-                mode=record.mode_of(obs.agent_id),
+                agent_id=observation.agent_id,
+                session_key=session_key(record.match_id, observation.agent_id),
+                payload=self._payload(record, observation, lobby, offline=not use_model),
+                mode=record.mode_of(observation.agent_id),
             )
 
+        # No cap, budget or timeout here: every agent thinks at once, for as long as its model needs. How long
+        # the game waits for the answer is the server's setting (Nlght:DecisionTimeoutSeconds).
         async with agent.lock:
-            # Earlier turns of this agent may have used up part of the deadline.
-            left = request.deadline_seconds - (time.monotonic() - received) - DEADLINE_MARGIN
-            if left <= 0:
-                result, mode = await turn(observation, False), "policy:deadline"
-            elif not agent.model_usable and not self._offline:
+            if self._offline:
+                result, mode = await turn(False), "policy:offline"
+            elif not _model_for(agent, observation)[1]:
                 # Its provider is not configured here: decide by policy, and say so in the counts.
-                result, mode = await turn(observation, False), "policy:no-model"
+                result, mode = await turn(False), "policy:no-model"
             else:
-                [(_, result, mode)] = await scheduler.run([observation], turn, timeout=left)
+                result, mode = await turn(True), "model"
         self._remember(agent, result)
         action = chosen_action(observation, result)
         agent.decided[mode] += 1
@@ -450,6 +471,8 @@ class LobbyRegistry:
             agent.recalled = list(result["recalled"])[:RECALLED_SHOWN]
         if "memory" in result:
             agent.memory = result["memory"]
+        if "stance" in result:
+            agent.timings, agent.stance = result.get("timings", {}), result["stance"]
 
     def _record_result(self, lobby: Lobby, result: ActionResult) -> None:
         agent = self._agent(lobby, result.agent_id)

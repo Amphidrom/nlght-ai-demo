@@ -41,7 +41,8 @@ from among_us.protocol import (
 )
 from among_us.scheduler import DecisionScheduler, SchedulerConfig
 from among_us.sim.engine import MAX_PLAYERS, SimEngine, max_impostors
-from among_us.steps import validate_proposal
+from among_us.assess import room_claims
+from among_us.turn import parse_game, parse_meeting
 from fastapi import HTTPException
 from nlght.core.model.messages import TrustedInstructionMessage, UntrustedContextMessage
 from nlght.core.model.trust import ContentTrust
@@ -74,18 +75,21 @@ def fake_llm(answer) -> SimpleNamespace:
     return SimpleNamespace(_backend=backend, _model="fake", token_budget=None)
 
 
+def _turn(messages) -> tuple[str, str, str]:
+    """The rules, the agent's own view and the request of one model call."""
+    rules = next(m.content for m in messages if isinstance(m, TrustedInstructionMessage))
+    view = next(r.content for m in messages if isinstance(m, UntrustedContextMessage) for r in m.records if r.record_id == "turn:view")
+    return rules, view, str(messages[-1].content)
+
+
 def first_legal_answer(messages) -> str:
-    """Pick the last legal action from the observation record, citing nothing."""
-    for message in messages:
-        if isinstance(message, UntrustedContextMessage):
-            for record in message.records:
-                if record.record_id == "observation:self":
-                    legal = json.loads(record.content)["legal_actions"]
-                    choice = legal[-1]
-                    text = "I was doing my tasks." if choice["action"] == "SAY" else None
-                    return json.dumps({"action": choice["action"], "target": choice["target"], "text": text,
-                                       "goal": "TEST", "evidence_ids": []})
-    return "no idea"
+    """Game turn: the last option. Meeting: say something harmless, or skip the vote."""
+    rules, view, request = _turn(messages)
+    if "Your number" in request:
+        return re.findall(r"^(\d+) ", view.split("Options:")[1], re.MULTILINE)[-1]
+    if "SAY <" in rules:
+        return "SAY I was doing my tasks."
+    return "SKIP" if "SKIP" in rules else "WAIT"
 
 
 def play(seed: int, runner=None, *, offline: bool = True) -> tuple[MatchRecord, SimEnvironment]:
@@ -324,31 +328,37 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual(load_ego("sherlock"), parse_ego("sherlock", valid))
 
 
-class ValidationTests(unittest.TestCase):
-    def test_accepts_a_legal_supported_statement(self) -> None:
-        action, status = validate_proposal(
-            {"action": "SAY", "text": "I saw echo leave electrical.", "evidence_ids": ["e1"]},
-            crew_observation(), {"e1"}, load_ego("sherlock"),
-        )
-        self.assertEqual("accepted", status["status"])
-        self.assertEqual(("e1",), action.evidence_ids)
+class AnswerTests(unittest.TestCase):
+    """A game turn answers with a number, a meeting turn with a line; nothing else needs parsing."""
 
-    def test_refuses_evidence_the_agent_cannot_recall(self) -> None:
-        action, status = validate_proposal(
-            {"action": "SAY", "text": "echo did it", "evidence_ids": ["e9"]},
-            crew_observation(), {"e1"}, load_ego("sherlock"),
-        )
-        self.assertIsNone(action)
-        self.assertEqual("unsupported", status["status"])
+    def test_a_game_answer_is_an_option_number(self) -> None:
+        options = [LegalAction(ActionKind.MOVE_TO, "admin"), LegalAction(ActionKind.WAIT)]
+        self.assertEqual((ActionKind.WAIT, None), parse_game("2", options, "sherlock").action.legal_key())
+        self.assertEqual((ActionKind.MOVE_TO, "admin"), parse_game("Option 1.", options, "sherlock").action.legal_key())
+        self.assertEqual("illegal", parse_game("7", options, "sherlock").status)
+        self.assertEqual("no_proposal", parse_game("I would rather not.", options, "sherlock").status)
 
-    def test_refuses_an_illegal_action(self) -> None:
-        action, status = validate_proposal({"action": "KILL", "target": "echo"}, crew_observation(), set(), load_ego("sherlock"))
-        self.assertIsNone(action)
-        self.assertEqual("illegal", status["status"])
+    def test_a_meeting_answer_is_its_last_line(self) -> None:
+        refs = {"m1": "e1", "m2": "e2"}
+        answer = parse_meeting("Hawk said medbay, but I saw him elsewhere.\n**SAY:** Hawk, you were in electrical. | m2 m9",
+                               crew_observation(), refs, load_ego("sherlock"))
+        self.assertEqual("accepted", answer.status)
+        self.assertEqual("Hawk, you were in electrical.", answer.action.text)
+        self.assertEqual(("e2",), answer.action.evidence_ids, "an unknown memory number is dropped")
 
-    def test_truncates_long_statements_to_the_ego(self) -> None:
-        action, _ = validate_proposal({"action": "SAY", "text": "word " * 100}, crew_observation(), set(), load_ego("bubbles"))
-        self.assertLessEqual(len(action.text.split()), load_ego("bubbles").voice.max_words + 1)
+    def test_the_view_of_others_may_change(self) -> None:
+        observation = crew_observation(roster=("sherlock", "hawk", "echo"))
+        answer = parse_meeting("WAIT\nMIND hawk+ echo= nobody-", observation, {}, load_ego("sherlock"))
+        self.assertIs(ActionKind.WAIT, answer.action.action)
+        self.assertEqual((("hawk", "+"), ("echo", "trust")), answer.mind)
+
+    def test_what_the_phase_does_not_allow_is_refused(self) -> None:
+        self.assertEqual("illegal", parse_meeting("VOTE hawk", crew_observation(), {}, load_ego("sherlock")).status)
+        self.assertEqual("no_proposal", parse_meeting("Hmm.", crew_observation(), {}, load_ego("sherlock")).status)
+
+    def test_long_statements_are_cut_to_the_ego(self) -> None:
+        answer = parse_meeting("SAY " + "word " * 100, crew_observation(), {}, load_ego("bubbles"))
+        self.assertLessEqual(len(answer.action.text.split()), load_ego("bubbles").voice.max_words + 1)
 
 
 class AgentTurnTests(unittest.TestCase):
@@ -365,14 +375,14 @@ class AgentTurnTests(unittest.TestCase):
                 if isinstance(message, UntrustedContextMessage):
                     for item in message.records:
                         self.assertIs(ContentTrust.UNTRUSTED, item.provenance.origin.trust)
-        chat_origins = {
-            ref.kind
-            for messages in calls for m in messages if isinstance(m, UntrustedContextMessage)
-            for item in m.records if item.record_id.startswith("memory:") and '"CHAT"' in item.content
-            for ref in item.provenance.origin.sources
+        origins = {
+            item.record_id: {ref.kind for ref in item.provenance.origin.sources}
+            for messages in calls for m in messages if isinstance(m, UntrustedContextMessage) for item in m.records
         }
-        if chat_origins:
-            self.assertEqual({"game_chat"}, chat_origins)
+        self.assertEqual({"game_observation"}, origins["turn:view"])
+        for record_id in ("turn:chat", "turn:heard"):
+            if record_id in origins:
+                self.assertEqual({"game_chat"}, origins[record_id], "other players' words stay marked as theirs")
         self.assertEqual("finished", record.status, record.error)
 
     def test_garbage_from_the_model_falls_back_to_a_legal_action(self) -> None:
@@ -380,7 +390,9 @@ class AgentTurnTests(unittest.TestCase):
         self.assertEqual("finished", record.status, record.error)
         decisions = [e for e in record.entries if e["type"] == "decision"]
         self.assertTrue(all(d["accepted"] for d in decisions))
-        self.assertTrue(any(d["result"]["validation"]["status"] == "malformed" for d in decisions))
+        # Not an option number: not understood, so the agent's plan or the policy decided instead.
+        self.assertTrue(any(d["result"]["validation"]["status"] == "no_proposal" for d in decisions))
+        self.assertTrue({d["result"]["decided_by"] for d in decisions} <= {"plan", "policy", "model"})
 
     def test_each_agent_keeps_its_own_session(self) -> None:
         runner = PipelineAgentRunner()
@@ -615,52 +627,22 @@ class OpportunityTests(unittest.TestCase):
 
 
 def claiming_answer(messages) -> str:
-    """Crew tells the truth about where it stands; impostors claim medbay."""
-    for message in messages:
-        if isinstance(message, UntrustedContextMessage):
-            for record in message.records:
-                if record.record_id == "observation:self":
-                    seen = json.loads(record.content)
-                    legal = seen["legal_actions"]
-                    you = seen["you"]
-                    if not any(a["action"] == "SAY" for a in legal):
-                        return "{}"   # no proposal: the policy plays the task phase
-                    tick = int(json.loads(messages[-1].content)["tick"])
-                    room = "medbay" if you["role"] == "IMPOSTOR" else you["room"]
-                    return json.dumps({"action": "SAY", "text": f"I was in {room}.", "goal": "ALIBI",
-                                       "claims": [{"player": you["player_id"], "room": room, "tick": tick}]})
-    return "{}"
+    """Crew tells the truth about where it stood; impostors claim medbay. Game turns are left to the plan."""
+    rules, view, request = _turn(messages)
+    if "SAY <" not in rules:
+        return "SKIP" if "Your vote" in request else ""
+    you = re.search(r"You: \S+, (\w+).*?you were in ([a-z0-9 ]+) when", view)
+    room = "medbay" if you.group(1) == "impostor" else you.group(2)
+    return f"SAY I was in {room}."
 
 
 class ClaimTests(unittest.TestCase):
-    def _validate(self, claims, evidence=()) -> tuple:
-        return validate_proposal(
-            {"action": "SAY", "text": "I was there.", "evidence_ids": list(evidence), "claims": claims},
-            crew_observation(), set(evidence), load_ego("sherlock"), players=EGOS,
-        )
-
-    def test_a_claim_about_oneself_needs_no_evidence(self) -> None:
-        action, status = self._validate([{"player": "sherlock", "room": "admin", "tick": 9}])
-        self.assertEqual("accepted", status["status"])
-        self.assertEqual([{"player": "sherlock", "room": "admin", "tick": 9}], status["claims"])
-
-    def test_a_claim_about_someone_else_needs_evidence(self) -> None:
-        _, status = self._validate([{"player": "echo", "room": "admin", "tick": 9}])
-        self.assertEqual("unsupported", status["status"])
-        _, status = self._validate([{"player": "echo", "room": "admin", "tick": 9}], evidence=["e1"])
-        self.assertEqual("accepted", status["status"])
-
-    def test_malformed_claims_are_refused(self) -> None:
-        for claims in (
-            [{"player": "sherlock", "room": "admin", "tick": 99}],          # future
-            [{"player": "sherlock", "room": "admin", "tick": True}],        # not a tick
-            [{"player": "stranger", "room": "admin", "tick": 1}],           # unknown player
-            [{"player": "sherlock", "room": "Admin Room!", "tick": 1}],     # not a room name
-            [{"player": "sherlock", "room": "admin", "tick": 1, "x": 1}],   # extra key
-            [{"player": "sherlock", "room": "admin", "tick": 1}] * 6,       # too many
-        ):
-            with self.subTest(claims=claims):
-                self.assertEqual("malformed", self._validate(claims)[1]["status"])
+    def test_a_statement_says_where_whom_it_names_was(self) -> None:
+        rooms = ("admin", "electrical", "lower_engine")
+        self.assertEqual([("sherlock", "admin")], room_claims("I was in admin.", "sherlock", EGOS, rooms))
+        self.assertEqual([("echo", "electrical")], room_claims("I saw echo in electrical!", "sherlock", EGOS, rooms))
+        self.assertEqual([("sherlock", "lower_engine")], room_claims("Lower engine, doing wires.", "sherlock", EGOS, rooms))
+        self.assertEqual([], room_claims("Where were you?", "sherlock", EGOS, rooms))
 
     def test_lies_detection_and_contradictions_are_scored(self) -> None:
         from among_us.environment import GroundTruth
@@ -1031,12 +1013,91 @@ class MeetingConversationTests(unittest.TestCase):
         [messages] = llm._backend.calls
         trusted = next(m for m in messages if isinstance(m, TrustedInstructionMessage))
         self.assertIn("This is a meeting", trusted.content)
-        context = next(r for m in messages if isinstance(m, UntrustedContextMessage) for r in m.records if r.record_id == "observation:self")
-        content = json.loads(context.content)
-        self.assertEqual(["In admin."], content["you_said"])
-        self.assertEqual("hawk", content["meeting_chat"][0]["speaker"])
+        chat = next(r for m in messages if isinstance(m, UntrustedContextMessage) for r in m.records if r.record_id == "turn:chat")
+        self.assertIn("hawk: Sherlock, where were you?\nyou: In admin.", chat.content)
+        self.assertEqual({"game_chat"}, {ref.kind for ref in chat.provenance.origin.sources}, "other players' words stay marked")
+        self.assertNotIn("{", chat.content, "plain text, no JSON")
 
-    def test_a_called_off_kill_is_reassessed_early(self) -> None:
-        from among_us.scheduler import priority
 
-        self.assertEqual(1, priority(task_observation("a", reason="reassess: kill called off, 2 witnesses")))
+
+class AssessmentTests(unittest.TestCase):
+    """The weighing happens before the model: situation, stance, contradictions, tactics and a held plan."""
+
+    def _task_observation(self, *, role: Role = Role.CREWMATE, tasks: tuple[str, ...] = (), see: tuple[str, ...] = ("echo",),
+                          legal: tuple[LegalAction, ...] = (), roster: tuple[str, ...] = ("sherlock", "echo", "hawk", "nova", "bubbles"),
+                          kill_ready: bool = False, events: tuple[ObservedEvent, ...] = ()) -> Observation:
+        return Observation(
+            agent_id="sherlock", tick=20, phase=Phase.TASKS,
+            self_state=SelfState("sherlock", "admin", role, tasks_remaining=tasks, kill_ready=kill_ready),
+            visible_players=tuple(VisiblePlayer(p, "admin") for p in see), events=events,
+            legal_actions=legal + tuple(LegalAction(ActionKind.FOLLOW, p) for p in see) + (LegalAction(ActionKind.GUARD), LegalAction(ActionKind.WAIT)),
+            roster=roster,
+        )
+
+    def test_with_tasks_done_a_bold_agent_shadows_its_suspect(self) -> None:
+        from among_us.assess import assess
+
+        beliefs = {"echo": {"suspicion": 0.7, "trust": 0.0, "evidence_ids": ["e1"]}}
+        result = assess(self._task_observation(), beliefs, [], load_ego("sherlock"), None)
+        self.assertEqual(LegalAction(ActionKind.FOLLOW, "echo"), result.preferred)
+        self.assertEqual("shadow", result.plan["tactic"])
+        timid = assess(self._task_observation(), beliefs, [], load_ego("echo"), None).plan
+        self.assertEqual("watch", timid["tactic"], "a timid, sociable ego stays with the others instead")
+
+    def test_late_in_the_game_an_agent_sticks_with_someone_it_trusts(self) -> None:
+        from among_us.assess import assess
+
+        beliefs = {"echo": {"suspicion": 0.2, "trust": 0.9, "evidence_ids": []}}
+        observation = self._task_observation(tasks=("wires",), roster=("sherlock", "echo", "hawk"))
+        result = assess(observation, beliefs, [], load_ego("guardian"), None)
+        self.assertEqual(("escort", LegalAction(ActionKind.FOLLOW, "echo")), (result.plan["tactic"], result.preferred))
+
+    def test_a_plan_holds_until_its_end_condition(self) -> None:
+        from among_us.assess import assess
+
+        plan = {"tactic": "escort", "action": "FOLLOW", "target": "echo", "reason": "r", "ends_if": "e", "since": 3}
+        trusted = {"echo": {"suspicion": 0.2, "trust": 0.9, "evidence_ids": []}}
+        kept = assess(self._task_observation(), trusted, [], load_ego("sherlock"), plan)
+        self.assertEqual((3, LegalAction(ActionKind.FOLLOW, "echo")), (kept.plan["since"], kept.preferred))
+        turned = {"echo": {"suspicion": 0.8, "trust": 0.0, "evidence_ids": ["e1"]}}
+        dropped = assess(self._task_observation(), turned, [], load_ego("sherlock"), plan)
+        self.assertNotEqual("escort", (dropped.plan or {}).get("tactic"))
+
+    def test_an_impostor_stalks_a_lone_crewmate_and_strikes_when_alone(self) -> None:
+        from among_us.assess import assess
+
+        two = self._task_observation(role=Role.IMPOSTOR, see=("echo", "hawk"), kill_ready=True,
+                                     legal=(LegalAction(ActionKind.KILL, "echo"), LegalAction(ActionKind.KILL, "hawk")))
+        self.assertEqual("stalk", assess(two, {}, [], load_ego("maverick"), None).plan["tactic"])
+        one = self._task_observation(role=Role.IMPOSTOR, see=("echo",), kill_ready=True, legal=(LegalAction(ActionKind.KILL, "echo"),))
+        self.assertEqual(LegalAction(ActionKind.KILL, "echo"), assess(one, {}, [], load_ego("maverick"), None).preferred)
+
+    def test_a_lie_in_the_meeting_becomes_a_conclusion_kept_as_memory(self) -> None:
+        from among_us.assess import assess, conclusions
+        from among_us.beliefs import update_beliefs
+        from among_us.memory import keep
+
+        seen = {"event_id": "e5", "tick": 18, "kind": "PLAYER_LEFT", "details": {"actor": "hawk", "room": "electrical"}, "certainty": 0.9}
+        meeting = crew_observation(tick=20, meeting_chat=(ChatMessage("hawk", "I was in medbay the whole time."),),
+                                   roster=("sherlock", "hawk", "echo"))
+        result = assess(meeting, {}, [seen], load_ego("sherlock"), None)
+        [found] = result.contradictions
+        self.assertEqual(("hawk", "medbay", "electrical"), (found.speaker, found.said, found.seen))
+        store = keep({"memories": {}}, conclusions("sherlock", result.contradictions))
+        [judged] = store["memories"].values()
+        before = update_beliefs([seen], load_ego("sherlock"), self_id="sherlock", players=["hawk", "echo"])
+        after = update_beliefs([seen, {**judged, "certainty": 1.0}], load_ego("sherlock"), self_id="sherlock", players=["hawk", "echo"])
+        self.assertGreater(after["hawk"]["suspicion"], before["hawk"]["suspicion"])
+
+    def test_a_game_turn_is_short_text_with_numbered_options_plan_first(self) -> None:
+        llm = fake_llm(first_legal_answer)
+        beliefs_echo = ObservedEvent("sherlock-00001", 1, EventKind.TASK_SEEN, room="admin", actor="echo")
+        observation = self._task_observation(events=(beliefs_echo,), roster=("sherlock", "echo", "hawk"))
+        payload = {"match_id": "m", "match_seed": 1, "agent_id": "sherlock", "ego": "guardian",
+                   "players": ["sherlock", "echo", "hawk"], "source": "test", "observation": to_dict(observation)}
+        result = asyncio.run(PipelineAgentRunner(llm).decide(agent_id="sherlock", session_key="s", payload=payload))
+        rules, view, request = _turn(llm._backend.calls[0])
+        self.assertIn("Answer with the number", rules)
+        self.assertNotIn("{", view)
+        self.assertRegex(view, r"Options:\n1 ")
+        self.assertEqual({"perceive", "remember", "believe", "decide", "model", "validate"}, set(result["timings"]))

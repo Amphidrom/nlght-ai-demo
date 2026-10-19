@@ -52,6 +52,10 @@ class ActionKind(StrEnum):
     #: Phantom: turn invisible, and visible again.
     VANISH = "VANISH"
     APPEAR = "APPEAR"
+    #: Keep a player in sight: escort someone trusted, shadow a suspect, or stalk a victim.
+    FOLLOW = "FOLLOW"
+    #: Stay where you are and watch who comes and goes.
+    GUARD = "GUARD"
     VOTE = "VOTE"
     SKIP_VOTE = "SKIP_VOTE"
     WAIT = "WAIT"
@@ -147,6 +151,20 @@ class SelfState:
 
 
 @dataclass(frozen=True)
+class Situation:
+    """Where the game stands, as far as this player can know it: public facts and its own state."""
+
+    #: The crew's task bar, 0..1; None when the game hides it (lobby setting, comms down).
+    task_progress: float | None = None
+    #: Emergency meetings this player can still call (crew).
+    emergencies_left: int | None = None
+    #: Ticks until this player's kill is ready (impostor).
+    kill_cooldown: int | None = None
+    #: Ticks since the last meeting ended, or since the game began.
+    since_meeting: int | None = None
+
+
+@dataclass(frozen=True)
 class Observation:
     agent_id: str
     tick: int
@@ -165,6 +183,7 @@ class Observation:
     outages: tuple[str, ...] = ()
     #: In a meeting: its chat so far, word for word, as it stands on everyone's screen.
     meeting_chat: tuple[ChatMessage, ...] = ()
+    situation: Situation = Situation()
 
 
 @dataclass(frozen=True)
@@ -542,5 +561,27 @@ def observation_from_dict(raw: Any) -> Observation:
             )
             for c in _list(body.get("meeting_chat"), "meeting_chat")
         ),
+        situation=_situation(body.get("situation")),
+    )
+
+
+def _situation(raw: Any) -> Situation:
+    if raw is None:
+        return Situation()
+    body = _exact(raw, Situation)
+
+    def number(key: str, kind: type) -> Any:
+        value = body.get(key)
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise ProtocolError(f"situation.{key} must be a number or null")
+        return kind(value)
+
+    return Situation(
+        task_progress=number("task_progress", float),
+        emergencies_left=number("emergencies_left", int),
+        kill_cooldown=number("kill_cooldown", int),
+        since_meeting=number("since_meeting", int),
     )
 

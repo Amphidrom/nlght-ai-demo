@@ -10,6 +10,9 @@ An agent's model is resolved in this order:
 2. its ego's ``[model]`` table,
 3. the platform default — the first configured provider and its default model.
 
+Meetings may use a model of their own — there is time to weigh what was said — chosen the same way
+(``[model.meeting]``, a meeting choice in the admin UI); without one, the game model decides there too.
+
 The decide step then runs on that provider and model: the turn's payload carries
 ``model_provider`` and ``model``, which the nlght executor binds.
 """
@@ -62,11 +65,12 @@ class ModelCatalog:
         provider = next(iter(self._backends))
         return ModelChoice(provider, self._default_models.get(provider), "default")
 
-    def resolve(self, ego: EgoProfile, override: ModelChoice | None = None) -> ModelChoice | None:
+    def resolve(self, ego: EgoProfile, override: ModelChoice | None = None, *, meeting: bool = False) -> ModelChoice | None:
         if override is not None:
             return override
         if ego.model is not None:
-            return ModelChoice(ego.model.provider, ego.model.name or self._default_models.get(ego.model.provider), "ego")
+            chosen = ego.model.meeting if meeting and ego.model.meeting is not None else ego.model
+            return ModelChoice(chosen.provider, chosen.name or self._default_models.get(chosen.provider), "ego")
         return self.default()
 
     def usable(self, choice: ModelChoice | None) -> bool:

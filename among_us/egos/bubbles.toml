@@ -24,6 +24,9 @@ recall_threshold = 0.35
 [judgement]
 suspicion_bias = 0.7
 call_meeting_at = 0.9
+trust_at = 0.3
+group_affinity = 0.8
+boldness = 0.4
 
 [voice]
 max_words = 30

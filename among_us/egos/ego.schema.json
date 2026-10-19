@@ -99,13 +99,70 @@
           "minimum": 0.0,
           "title": "Call Meeting At",
           "type": "number"
+        },
+        "trust_at": {
+          "description": "Trust in a player at which the agent counts them as trusted (assess.assess): someone to stay with, someone to vouch for.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Trust At",
+          "type": "number"
+        },
+        "group_affinity": {
+          "description": "How strongly the agent prefers company over going alone (assess.assess): stay with the group or a trusted player once the tasks are done, fake tasks where others watch.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Group Affinity",
+          "type": "number"
+        },
+        "boldness": {
+          "description": "Readiness to take risks (assess.assess): shadow a suspect, stalk a victim, sabotage before a kill.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Boldness",
+          "type": "number"
         }
       },
       "required": [
         "suspicion_bias",
-        "call_meeting_at"
+        "call_meeting_at",
+        "trust_at",
+        "group_affinity",
+        "boldness"
       ],
       "title": "Judgement",
+      "type": "object"
+    },
+    "MeetingModel": {
+      "additionalProperties": false,
+      "description": "The model for meeting turns, where there is time to weigh what was said.",
+      "properties": {
+        "provider": {
+          "description": "Name of a model provider configured in platform.yaml.",
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Provider",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Model at that provider, as its model list names it; omitted: the provider's default model.",
+          "title": "Name"
+        }
+      },
+      "required": [
+        "provider"
+      ],
+      "title": "MeetingModel",
       "type": "object"
     },
     "ModelSelection": {
@@ -133,6 +190,18 @@
           "default": null,
           "description": "Model at that provider, as its model list names it; omitted: the provider's default model.",
           "title": "Name"
+        },
+        "meeting": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MeetingModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A different model for meetings; omitted: this one decides there too."
         }
       },
       "required": [

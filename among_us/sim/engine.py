@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from among_us.domain import GameEvent
 from among_us.protocol import (
     ChatMessage,
+    Situation,
     ActionKind,
     ActionResult,
     EventKind,
@@ -150,6 +151,7 @@ class SimEngine:
             tasks = self._rng.sample(sorted(TASKS), tasks_per_player)
             special = roles_left.pop(0) if role is Role.IMPOSTOR and roles_left else None
             self._players[pid] = _Player(pid, role, tasks, special)
+        self._tasks_dealt = {pid: len(p.tasks) for pid, p in self._players.items()}
         self._kill_cooldown = kill_cooldown
         self._task_ticks = task_ticks
         self._sabotage_cooldown_ticks = sabotage_cooldown
@@ -161,6 +163,7 @@ class SimEngine:
         self._ability_cooldown_ticks = ability_cooldown
         self._meeting_rounds = meeting_rounds
         self._meeting_chat: list[ChatMessage] = []
+        self._last_meeting_tick = 0
         self._max_ticks = max_ticks
         #: Shared by the impostor team, as in the real game.
         self._sabotage_cooldown = sabotage_cooldown
@@ -231,6 +234,13 @@ class SimEngine:
             return True
         if any(event.kind in _SALIENT for event in player.pending):
             return True
+        if player.intent.action is ActionKind.GUARD and any(
+            event.kind in (EventKind.PLAYER_ENTERED, EventKind.PLAYER_LEFT) for event in player.pending
+        ):
+            # Watching is about who comes and goes: a change is worth a fresh look.
+            return True
+        if player.intent.action is ActionKind.FOLLOW and player.intent.target not in self.alive():
+            return True   # the one it followed is gone
         targets = frozenset(self._kill_targets(pid))
         return (
             player.role is Role.IMPOSTOR
@@ -294,7 +304,21 @@ class SimEngine:
             alarm=self._sabotage[0] if self._sabotage and self._sabotage[0] in CRITICAL_SABOTAGES else None,
             outages=tuple(sorted({self._sabotage[0]} - CRITICAL_SABOTAGES)) if self._sabotage else (),
             meeting_chat=tuple(self._meeting_chat) if in_meeting else (),
+            situation=Situation(
+                task_progress=None if self._outage("comms") else self.task_progress(),
+                emergencies_left=None if player.role is Role.IMPOSTOR else int(not player.button_used),
+                kill_cooldown=player.kill_cooldown if player.role is Role.IMPOSTOR else None,
+                since_meeting=self.tick - self._last_meeting_tick,
+            ),
         )
+
+    def task_progress(self) -> float:
+        """The crew's task bar: done tasks of all crewmates, dead ones included, as in the game."""
+
+        crew = [p for p in self._players.values() if p.role is Role.CREWMATE]
+        total = sum(self._tasks_dealt[p.player_id] for p in crew)
+        left = sum(len(p.tasks) for p in crew)
+        return round((total - left) / total, 3) if total else 1.0
 
     def legal_actions(self, pid: str) -> tuple[LegalAction, ...]:
         player = self._players[pid]
@@ -314,6 +338,11 @@ class SimEngine:
         actions += [
             LegalAction(ActionKind.REPORT, b.body_id) for b in self._bodies.values() if b.room == player.room
         ]
+        actions += [
+            LegalAction(ActionKind.FOLLOW, seen) for other in self._others_in(player.room, pid)
+            if (seen := self._apparent(other, pid)) == other
+        ]
+        actions.append(LegalAction(ActionKind.GUARD))
         if impostor:
             if player.kill_cooldown == 0 and not player.vanished:
                 actions += [LegalAction(ActionKind.KILL, target) for target in self._kill_targets(pid)]
@@ -448,29 +477,49 @@ class SimEngine:
         if intent is None:
             return
         kind = intent.action
-        if kind is ActionKind.MOVE_TO and intent.target:
-            hop = next_hop(player.room, intent.target)
-            if hop is None:
+        if kind is ActionKind.FOLLOW and intent.target:
+            followed = self._players.get(intent.target)
+            if followed is None or not followed.alive:
                 player.intent = None
                 return
-            if player.room in self._doors or hop in self._doors:
-                return   # the doors are shut: wait, the intent stays
-            origin = player.room
-            others_from = self._others_in(origin, player.player_id)
-            others_to = self._others_in(hop, player.player_id)
-            self._emit("MOVED", EventKind.PLAYER_LEFT, others_from, room=origin,
-                       actor=player.player_id, target=hop, text=None)
-            player.room = hop
-            if others_to:
-                self._emit("MOVED", EventKind.PLAYER_ENTERED, others_to, room=hop,
-                           actor=player.player_id, target=origin, text=None)
-            for other in others_to:
-                self._emit("SIGHTING", EventKind.PLAYER_ENTERED, [player.player_id], room=hop,
-                           actor=other, text="already here")
-            self._discover_bodies(player)
-            if hop == intent.target:
+            if followed.room != player.room:
+                self._step_toward(player, followed.room, keep_intent=True)
+            return
+        if kind is ActionKind.GUARD:
+            return   # stay and watch; the intent holds until something changes
+        if kind is ActionKind.MOVE_TO and intent.target:
+            self._step_toward(player, intent.target)
+            return
+        self._act(player, intent)
+
+    def _step_toward(self, player: _Player, destination: str, *, keep_intent: bool = False) -> None:
+        """One corridor toward ``destination``; arriving there ends a MOVE_TO."""
+
+        hop = next_hop(player.room, destination)
+        if hop is None:
+            if not keep_intent:
                 player.intent = None
             return
+        if player.room in self._doors or hop in self._doors:
+            return   # the doors are shut: wait, the intent stays
+        origin = player.room
+        others_from = self._others_in(origin, player.player_id)
+        others_to = self._others_in(hop, player.player_id)
+        self._emit("MOVED", EventKind.PLAYER_LEFT, others_from, room=origin,
+                   actor=player.player_id, target=hop, text=None)
+        player.room = hop
+        if others_to:
+            self._emit("MOVED", EventKind.PLAYER_ENTERED, others_to, room=hop,
+                       actor=player.player_id, target=origin, text=None)
+        for other in others_to:
+            self._emit("SIGHTING", EventKind.PLAYER_ENTERED, [player.player_id], room=hop,
+                       actor=other, text="already here")
+        self._discover_bodies(player)
+        if hop == destination and not keep_intent:
+            player.intent = None
+
+    def _act(self, player: _Player, intent: SemanticAction) -> None:
+        kind = intent.action
         if kind is ActionKind.DO_TASK and intent.target in player.tasks:
             # A task takes several ticks; it is seen by whoever is present when it starts.
             if player.task_progress == 0:
@@ -582,6 +631,7 @@ class SimEngine:
         self.phase = Phase.MEETING
         self._round = 0
         self._meeting_chat = []
+        self._last_meeting_tick = self.tick
         self._statements = {}
         self._votes = {}
         for p in self._players.values():

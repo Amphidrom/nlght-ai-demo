@@ -1,4 +1,4 @@
-"""Subjective suspicion, derived from what an agent can recall right now.
+"""Subjective suspicion and trust, derived from what an agent can recall right now.
 
 Beliefs are recomputed from recalled memories on every turn instead of being
 accumulated, so forgetting a sighting also weakens the suspicion it carried.
@@ -11,6 +11,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from among_us.ego import EgoProfile
+from among_us.memory import JUDGED
 from among_us.protocol import EventKind
 
 _PRIOR = 0.2
@@ -28,9 +29,11 @@ def update_beliefs(
     memories = list(recalled)
     partners = set(partners)
     scores: dict[str, float] = {}
+    trusts: dict[str, float] = {}
     evidence: dict[str, list[str]] = {}
     for pid in sorted(set(players) - {self_id}):
         scores[pid] = 0.0 if pid in partners else _PRIOR
+        trusts[pid] = 1.0 if pid in partners else 0.0
         evidence[pid] = []
 
     def bump(pid: str | None, delta: float, memory: dict[str, Any]) -> None:
@@ -39,6 +42,11 @@ def update_beliefs(
         weighted = delta * float(memory["certainty"]) * (ego.judgement.suspicion_bias if delta > 0 else 1.0)
         scores[pid] += weighted
         evidence[pid].append(memory["event_id"])
+
+    def trust(pid: str | None, delta: float, memory: dict[str, Any]) -> None:
+        if pid not in trusts or pid in partners:
+            return
+        trusts[pid] += delta * float(memory["certainty"])
 
     bodies = [m for m in memories if m["kind"] in (EventKind.BODY_FOUND.value, EventKind.MEETING_CALLED.value)]
     for memory in memories:
@@ -59,6 +67,16 @@ def update_beliefs(
             bump(actor, 0.9, memory)
         elif kind == EventKind.TASK_SEEN.value:
             bump(actor, -0.08, memory)
+            trust(actor, 0.2, memory)
+        elif kind == JUDGED:
+            # A conclusion of its own, from a meeting or a contradiction it noticed.
+            target, verdict = details.get("target"), details.get("text")
+            if verdict == "+":
+                bump(target, 0.3, memory)
+            elif verdict == "-":
+                bump(target, -0.3, memory)
+            elif verdict == "trust":
+                trust(target, 0.5, memory)
         elif kind in (EventKind.PLAYER_LEFT.value, EventKind.PLAYER_ENTERED.value):
             for body in bodies:
                 same_room = details.get("room") and details.get("room") == body["details"].get("room")
@@ -74,7 +92,12 @@ def update_beliefs(
             # remembered: it makes the voter a little suspicious to this agent.
             bump(actor, 0.05, memory)
     return {
-        pid: {"suspicion": round(min(1.0, max(0.0, score)), 3), "evidence_ids": sorted(set(evidence[pid]))}
+        pid: {
+            "suspicion": round(min(1.0, max(0.0, score)), 3),
+            # Trust is not the absence of suspicion: it needs reasons of its own (seen doing tasks, judged trustworthy).
+            "trust": round(min(1.0, max(0.0, trusts[pid] - max(0.0, score - _PRIOR))), 3),
+            "evidence_ids": sorted(set(evidence[pid])),
+        }
         for pid, score in scores.items()
     }
 

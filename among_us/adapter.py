@@ -8,7 +8,8 @@ GET  /among-us/api/lobbies/{id}/stream     … receives actions as server-sent e
 DELETE /among-us/api/lobbies/{id}          … closes it                          (lobby token)
 GET  /among-us/api/lobbies                 all lobbies, their agents and matches
 GET  /among-us/api/lobbies/{id}            one lobby
-PUT  /among-us/api/lobbies/{id}/agents/{agent}/model   the operator's model for one agent ({"provider", "model"} or null)
+PUT  /among-us/api/lobbies/{id}/agents/{agent}/model   the operator's model for one agent's game or meeting turns
+                                           ({"provider", "model", "phase": "game"|"meeting"}; provider null: back to default)
 GET  /among-us/api/models                  configured providers and the models each one serves
 GET  /among-us/api/matches/{id}            status and result
 GET  /among-us/api/matches/{id}/events     decision log as server-sent events
@@ -231,9 +232,11 @@ class AmongUsAdapter:
             if self._registry is None:
                 raise HTTPException(404, "Lobby not found.")
             body = await _json_body(request)
-            provider, model = body.get("provider"), body.get("model")
-            if set(body) - {"provider", "model"} or not isinstance(provider, str | None) or not isinstance(model, str | None):
-                raise HTTPException(422, "Expected {provider, model}: strings, or provider null to go back to the ego's model.")
+            provider, model, phase = body.get("provider"), body.get("model"), body.get("phase", "game")
+            if (set(body) - {"provider", "model", "phase"} or not isinstance(provider, str | None)
+                    or not isinstance(model, str | None) or phase not in ("game", "meeting")):
+                raise HTTPException(422, "Expected {provider, model, phase}: strings (phase game or meeting), "
+                                         "or provider null to go back to the default.")
             try:
                 lobby = self._registry.lobby(lobby_id)
                 choice = None
@@ -242,7 +245,7 @@ class AmongUsAdapter:
                     if catalog is None:
                         raise HTTPException(409, "No model providers are known in this process.")
                     choice = await catalog.validate(provider, model or None)
-                return self._registry.set_model(lobby, agent_id, choice).summary()
+                return self._registry.set_model(lobby, agent_id, choice, meeting=phase == "meeting").summary()
             except ModelChoiceError as exc:
                 raise HTTPException(422, str(exc)) from exc
             except LobbyError as exc:

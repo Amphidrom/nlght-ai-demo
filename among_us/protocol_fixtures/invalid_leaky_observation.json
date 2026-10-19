@@ -281,6 +281,12 @@
       "sherlock"
     ],
     "alarm": null,
-    "outages": []
+    "outages": [],
+    "situation": {
+      "task_progress": 0.25,
+      "emergencies_left": 1,
+      "kill_cooldown": null,
+      "since_meeting": 4
+    }
   }
 }

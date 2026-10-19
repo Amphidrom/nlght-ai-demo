@@ -84,12 +84,33 @@ class Judgement(_Section):
         description="Suspicion of one player at which a crewmate calls an emergency meeting on its own, between "
         "decisions (initiative.initiative_action). Above 1, never.",
     )
+    trust_at: Probability = Field(
+        description="Trust in a player at which the agent counts them as trusted (assess.assess): someone to stay "
+        "with, someone to vouch for.",
+    )
+    group_affinity: Probability = Field(
+        description="How strongly the agent prefers company over going alone (assess.assess): stay with the group or a "
+        "trusted player once the tasks are done, fake tasks where others watch.",
+    )
+    boldness: Probability = Field(
+        description="Readiness to take risks (assess.assess): shadow a suspect, stalk a victim, sabotage before a kill.",
+    )
 
 
 class Voice(_Section):
     """How the agent speaks (decide prompt, validator)."""
 
     max_words: int = Field(ge=5, le=120, description="Upper bound on words per meeting statement.")
+
+
+class MeetingModel(_Section):
+    """The model for meeting turns, where there is time to weigh what was said."""
+
+    provider: str = Field(min_length=1, max_length=64, description="Name of a model provider configured in platform.yaml.")
+    name: str | None = Field(
+        default=None, min_length=1, max_length=200,
+        description="Model at that provider, as its model list names it; omitted: the provider's default model.",
+    )
 
 
 class ModelSelection(_Section):
@@ -100,6 +121,9 @@ class ModelSelection(_Section):
     name: str | None = Field(
         default=None, min_length=1, max_length=200,
         description="Model at that provider, as its model list names it; omitted: the provider's default model.",
+    )
+    meeting: MeetingModel | None = Field(
+        default=None, description="A different model for meetings; omitted: this one decides there too.",
     )
 
 

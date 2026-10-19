@@ -15,6 +15,7 @@ from typing import Any
 
 from among_us.ego import load_ego
 from among_us.match import MatchRecord
+from among_us.memory import JUDGED
 from among_us.memory import consolidate, empty_store, recall
 from among_us.protocol import ObservedEvent
 
@@ -55,6 +56,8 @@ def _leakage(decisions: Sequence[dict[str, Any]], views: dict[str, dict[str, Any
         ids |= set(result.get("memory", {}).get("encoded", []))
         ids |= set(decision["action"].get("evidence_ids") or [])
         for event_id in ids:
+            if ":judged:" in event_id:
+                continue   # the agent's own conclusion, not a perception: nothing to leak
             references += 1
             if event_id not in views.get(agent, {}):
                 violations += 1
@@ -73,6 +76,8 @@ def _recall(decisions: Sequence[dict[str, Any]], views: dict[str, dict[str, Any]
         agent = decision["agent_id"]
         egos[agent] = decision["ego"]
         for memory in decision.get("result", {}).get("recalled", []):
+            if memory["kind"] == JUDGED:
+                continue   # a conclusion, not a perception: there is no view of it to compare with
             latest[agent][memory["event_id"]] = memory
             ever[agent].add(memory["event_id"])
     for agent in sorted(set(egos)):

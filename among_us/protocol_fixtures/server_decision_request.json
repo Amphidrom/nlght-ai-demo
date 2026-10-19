@@ -173,6 +173,12 @@
     ],
     "alarm": null,
     "outages": [],
-    "meeting_chat": []
+    "meeting_chat": [],
+    "situation": {
+      "task_progress": 0.25,
+      "emergencies_left": 1,
+      "kill_cooldown": null,
+      "since_meeting": 4
+    }
   }
 }

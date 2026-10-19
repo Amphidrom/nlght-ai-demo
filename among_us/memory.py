@@ -29,6 +29,34 @@ _SALIENT = frozenset({
 })
 
 
+#: A conclusion the agent drew itself — in a meeting, or from a contradiction it noticed. It is kept, weighed and
+#: forgotten like any other memory; ``details.target`` is whom it is about, ``details.text`` the verdict:
+#: "+" (more suspicious), "-" (less) or "trust".
+JUDGED = "JUDGED"
+
+
+def judgement(agent_id: str, key: str, tick: int, target: str, verdict: str, cited: Iterable[str] = ()) -> dict[str, Any]:
+    """A conclusion as a memory trace. The same ``key`` is the same conclusion: storing it again changes nothing."""
+
+    details: dict[str, Any] = {"target": target, "text": verdict}
+    if cited:
+        details["cited"] = sorted(set(cited))
+    return {"event_id": f"{agent_id}:judged:{key}", "tick": tick, "kind": JUDGED, "details": details, "encoding_quality": 1.0}
+
+
+def keep(slot: Any, traces: Iterable[dict[str, Any]]) -> Any:
+    """Add traces to a memory slot: the ego store (a dict) or the baseline transcript (a list)."""
+
+    traces = list(traces)
+    if isinstance(slot, list):
+        known = {entry["event_id"] for entry in slot}
+        return slot + [t for t in traces if t["event_id"] not in known]
+    memories = dict(slot.get("memories", {}))
+    for trace in traces:
+        memories.setdefault(trace["event_id"], trace)
+    return {**slot, "memories": memories}
+
+
 def rng_for(match_seed: int, agent_id: str, event_id: str, purpose: str) -> random.Random:
     digest = hashlib.sha256(f"{match_seed}|{agent_id}|{event_id}|{purpose}".encode()).digest()
     return random.Random(int.from_bytes(digest[:8], "big"))

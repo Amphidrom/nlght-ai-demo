@@ -91,7 +91,8 @@ class WorkflowAgentRunner:
         cid = str(uuid.uuid4())
         body = dict(payload)
         if "model_provider" not in body and self._catalog is not None:
-            choice = self._catalog.resolve(load_ego(str(body.get("ego", ""))))
+            meeting = (body.get("observation") or {}).get("phase") in ("MEETING", "VOTING")
+            choice = self._catalog.resolve(load_ego(str(body.get("ego", ""))), meeting=meeting)
             if choice is not None:
                 body.update(model_provider=choice.provider, model=choice.model)
         invocation = await build_invocation(

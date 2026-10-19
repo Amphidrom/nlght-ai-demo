@@ -419,13 +419,14 @@ function agentRow(lobby, agent) {
     decisions,
     el("td", { text: String(agent.refused) }),
     el("td", { text: initiatives }),
-    el("td", {}, modelPicker(lobby, agent)));
+    el("td", {}, modelPicker(lobby, agent, "game"), modelPicker(lobby, agent, "meeting")));
 }
 
-function modelPicker(lobby, agent) {
-  const current = agent.model;
-  const cell = el("div", {});
-  const select = el("select", { "aria-label": `Model of ${agent.name}` });
+function modelPicker(lobby, agent, phase) {
+  const meeting = phase === "meeting";
+  const current = meeting ? agent.meeting_model : agent.model;
+  const cell = el("div", {}, el("span", { class: "muted", text: meeting ? "meeting " : "game " }));
+  const select = el("select", { "aria-label": `${meeting ? "Meeting" : "Game"} model of ${agent.name}` });
   const inherited = current && current.source !== "override" ? current : null;
   select.append(el("option", { value: "", text: inherited ? `${inherited.source}: ${inherited.provider} / ${inherited.model || "default"}` : "ego / platform default" }));
   for (const provider of lobbies.providers) {
@@ -446,7 +447,7 @@ function modelPicker(lobby, agent) {
     select.blur();
     try {
       await json(`${API}/lobbies/${lobby.lobby_id}/agents/${agent.agent_id}/model`, {
-        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider, model }),
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider, model, phase }),
       });
     } catch (error) {
       document.getElementById("lobbies-state").textContent = `Model not changed: ${error.message}`;
@@ -454,7 +455,7 @@ function modelPicker(lobby, agent) {
     refreshLobbies();
   });
   cell.append(select);
-  if (!agent.model_usable) cell.append(el("div", { class: "warn", text: "provider not configured · the policy decides" }));
+  if (!(meeting ? agent.meeting_model_usable : agent.model_usable)) cell.append(el("div", { class: "warn", text: "provider not configured · the policy decides" }));
   return cell;
 }
 
@@ -462,13 +463,19 @@ function agentDetail(agent) {
   const beliefs = Object.entries(agent.beliefs).sort((a, b) => b[1].suspicion - a[1].suspicion);
   const suspicions = el("ul", {}, ...beliefs.map(([player, b]) => el("li", {},
     el("span", { class: "suspicion", style: `width: ${Math.round(b.suspicion * 60)}px` }),
-    `${player} ${b.suspicion} (${b.evidence_ids.length} memories)`)));
+    `${player} ${b.suspicion}${b.trust ? ` · trust ${b.trust}` : ""} (${b.evidence_ids.length} memories)`)));
   const memories = el("ul", {}, ...agent.recalled.map((m) => el("li", {
     text: `${m.event_id} · ${m.kind.toLowerCase()} · ${Object.entries(m.details).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(", ")} · certainty ${m.certainty}`,
   })));
   const memory = agent.memory.stored != null ? ` · ${agent.memory.stored} stored, ${agent.memory.forgotten || 0} forgot in the last turn` : "";
+  const plan = agent.stance?.plan;
+  const timings = Object.entries(agent.timings || {}).map(([step, ms]) => `${step} ${ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`}`).join(" · ");
+  const stance = el("div", { class: "muted" },
+    el("div", { text: plan ? `Plan: ${plan.reason} → ${[plan.action, plan.target].filter(Boolean).join(" ")} (until ${plan.ends_if})` : "Plan: —" }),
+    ...(agent.stance?.contradictions || []).map((c) => el("div", { class: "warn", text: `Contradiction: ${c}` })),
+    el("div", { text: timings ? `Last decision: ${timings}` : "Last decision: —" }));
   return el("tr", { class: "agent-detail" }, el("td", { colspan: "9" }, el("div", { class: "columns" },
-    el("div", {}, el("p", { class: "eyebrow", text: "Suspects" }), beliefs.length ? suspicions : el("span", { class: "muted", text: "—" })),
+    el("div", {}, el("p", { class: "eyebrow", text: "Suspects · trust" }), beliefs.length ? suspicions : el("span", { class: "muted", text: "—" }), stance),
     el("div", {}, el("p", { class: "eyebrow", text: `Recalls${memory}` }), agent.recalled.length ? memories : el("span", { class: "muted", text: "—" })))));
 }
 

@@ -40,7 +40,6 @@ from among_us.protocol import (
     encode,
     to_dict,
 )
-from among_us.scheduler import SchedulerConfig
 from among_us.steps import MEMORY_SLOT
 
 FIXTURES = Path("among_us/protocol_fixtures")
@@ -353,7 +352,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_every_turn_names_its_agents_provider_and_model(self) -> None:
         runner = RecordingRunner()
-        registry = LobbyRegistry(runner, catalog=catalog(), scheduler=SchedulerConfig(turn_timeout_seconds=5))
+        registry = LobbyRegistry(runner, catalog=catalog())
         registered = registry.register(registration(2))
         lobby = registry.lobby(registered.lobby_id)
         a, b = (agent.agent_id for agent in registered.agents)
@@ -369,6 +368,31 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
 
         registry.set_model(lobby, b, None)
         self.assertEqual("default", lobby.agents[b].model.source)
+
+    def test_an_ego_may_name_a_model_for_meetings(self) -> None:
+        models = catalog()
+        text = Path("among_us/egos/sherlock.toml").read_text()
+        both = parse_ego("sherlock", text + '\n[model]\nprovider = "ollama"\nname = "llama3.2:3b"\n\n[model.meeting]\nprovider = "anthropic"\n')
+        self.assertEqual(ModelChoice("ollama", "llama3.2:3b", "ego"), models.resolve(both))
+        self.assertEqual(ModelChoice("anthropic", "claude-sonnet-5-5", "ego"), models.resolve(both, meeting=True))
+
+    async def test_meeting_turns_run_on_the_meeting_model(self) -> None:
+        runner = RecordingRunner()
+        registry = LobbyRegistry(runner, catalog=catalog())
+        registered = registry.register(registration(1))
+        lobby = registry.lobby(registered.lobby_id)
+        agent = registered.agents[0].agent_id
+        self.assertEqual(lobby.agents[agent].model, lobby.agents[agent].meeting_model, "without a meeting model, the game model")
+        registry.set_model(lobby, agent, await registry.catalog.validate("anthropic", None), meeting=True)
+        registry.handle(lobby, GameStarted("skeld", (agent,)))
+        registry.handle(lobby, DecisionRequest("r1", 120, observation(agent)))
+        await registry.drain()   # a newer request of the same agent would replace this one
+        meeting = Observation(agent_id=agent, tick=3, phase=Phase.MEETING, self_state=SelfState(agent, "admin", Role.CREWMATE),
+                              legal_actions=(LegalAction(ActionKind.SAY), LegalAction(ActionKind.WAIT)), roster=(agent,))
+        registry.handle(lobby, DecisionRequest("r2", 120, meeting))
+        await registry.drain()
+        used = {p["observation"]["phase"]: p["model_provider"] for p in runner.payloads}
+        self.assertEqual({"TASKS": "ollama", "MEETING": "anthropic"}, used)
 
     async def test_an_agent_whose_provider_is_missing_decides_by_policy_and_says_so(self) -> None:
         registry = LobbyRegistry(RecordingRunner(), catalog=catalog())
@@ -416,24 +440,13 @@ class AdminViewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, seen["memory"]["stored"])
 
 
-class DeadlineTests(unittest.IsolatedAsyncioTestCase):
+class ReplacedRequestTests(unittest.IsolatedAsyncioTestCase):
     async def _lobby(self, runner: PipelineAgentRunner):
-        registry = LobbyRegistry(runner, scheduler=SchedulerConfig(turn_timeout_seconds=90))
+        registry = LobbyRegistry(runner)
         registered = registry.register(registration(1))
         lobby = registry.lobby(registered.lobby_id)
         registry.handle(lobby, GameStarted("skeld", (registered.agents[0].agent_id,)))
         return registry, lobby, registered.agents[0].agent_id
-
-    async def test_the_answer_arrives_within_the_games_deadline(self) -> None:
-        registry, lobby, agent = await self._lobby(SlowModelRunner(delay=10))
-        loop = asyncio.get_running_loop()
-        began = loop.time()
-        registry.handle(lobby, DecisionRequest("r1", 3.5, observation(agent)))
-        await registry.drain()
-        self.assertLess(loop.time() - began, 3.5, "the game must not give up on the answer")
-        [answer] = outbox(lobby)
-        self.assertEqual("r1", answer.request_id)
-        self.assertEqual({"policy:timeout": 1}, dict(lobby.agents[agent].decided))
 
     async def test_a_replaced_request_is_not_answered(self) -> None:
         runner = SlowModelRunner(delay=0.3)

@@ -152,9 +152,10 @@ The server posts:
   stops before decide: memory grows with every event, not only at decision points. The game is not
   answered — but the agent may act on its own (see below).
 - `decision_request` `{request_id, deadline_seconds, observation}` — the agent is at a decision
-  point. The answer is scheduled to arrive within `deadline_seconds` (two seconds are kept back for
-  the way back); a model turn that cannot make it is replaced by the policy. A newer request of the
-  same agent cancels an unanswered older one.
+  point. Its turn starts at once, in parallel with every other agent's, and runs for as long as its
+  model needs: lobbies have no concurrency cap, budget or timeout. `deadline_seconds` is how long the
+  server waits (`Nlght:DecisionTimeoutSeconds`, 120 s by default) before its heuristic takes over. A
+  newer request of the same agent cancels an unanswered older one.
 - `action_result` `{agent_id, accepted, reason, request_id}` — the game's verdict, recorded on the
   decision.
 - `agent_left` `{agent_id, reason}` and `game_ended` `{winner, reason, roles}` — `roles` is every
@@ -163,6 +164,46 @@ The server posts:
 The orchestrator streams `action` `{request_id, …SemanticAction}`: an answer to a request, or with
 `request_id: null` an action on the agent's own initiative, which the server checks against the game
 as it is at that moment and judges with an `action_result` without `request_id`.
+
+### Two kinds of turns, one stance
+
+A game turn has to be fast, a meeting turn may take its time. Both start from the agent's
+**stance**, which the decide step assesses deterministically (`among_us/assess.py`), without the
+model:
+
+- **Situation.** Every observation carries `situation` — the crew's task bar (null when the lobby
+  hides it or comms are down), the agent's own emergency meetings left, its kill cooldown in ticks,
+  ticks since the last meeting — and the assessment adds who is alive and dead as far as the agent
+  knows, and the stage of the game (early, mid, late).
+- **Suspicion and trust.** Beliefs carry `trust` next to `suspicion`: seeing someone do tasks builds
+  it, and so do the agent's own conclusions.
+- **Plan.** A tactic is held across turns with its reason and the condition that ends it, in the
+  Hive Mind slot `among_us:plan`: crew — report, fix a sabotage, call a meeting when sure enough,
+  escort someone trusted late in the game, do tasks, then shadow a suspect, stay with someone
+  trusted or watch with the group; impostor — escape after a kill, strike when alone with a
+  victim, stalk a lone crewmate, sabotage the lights before striking, fake tasks where others see,
+  blend in. Only something urgent overrides a valid plan. How much an agent leans which way is its
+  ego's: `judgement.trust_at`, `group_affinity` and `boldness`.
+
+**Game turn** (`among_us/turn.py`): the context is a few lines of plain text — who the agent is,
+where the game stands, its plan, what it sees, its six most important memories, its suspects and
+whom it trusts — followed by the legal moves as numbered options, the plan's first, each explained
+in a few words (`VENT electrical (anyone in the room sees you)`). The model answers with a number.
+`FOLLOW <player>` keeps someone in sight; `GUARD` stays and watches.
+
+**Meeting turn**: the whole chat, every memory the agent can still recall, the contradictions
+between what was said and what it saw (`hawk says they were in medbay; you saw hawk in electrical at
+t20 (m5)`), its suspects and trust with reasons. The model may think first; only the last lines
+count: `SAY … | m2 m5`, `VOTE <player> | …`, `SKIP` or `WAIT`, and optionally `MIND hawk+ nova- echo=`
+— how its view of the others changed. A contradiction and a `MIND` verdict both become **conclusions**:
+memories of their own (`JUDGED`), weighed in the beliefs and forgotten like any other memory, so
+what the meeting settled carries into the game turns that follow.
+
+No JSON goes into or comes out of the model. An answer that is not understood (`no_proposal`) or not
+legal (`illegal`) is replaced by the plan's move, else the policy (`decided_by`: model, plan or
+policy). Where a statement puts whom is read from its text (`assess.room_claims`) for the evaluation.
+Every turn records how long each step took (`timings`: perceive, remember, believe, decide, model,
+validate); the admin view shows them per agent.
 
 **Meetings as a conversation.** In meetings and votes every observation carries `meeting_chat`: the
 meeting's chat so far, word for word, as it stands on everyone's screen (what the agent *keeps* of it
@@ -212,10 +253,16 @@ Every agent decides with its own provider and model, resolved in this order
    `name` (omitted: that provider's default model),
 3. the platform default: the first configured provider and its default model.
 
+Meeting turns may use a model of their own — `[model.meeting]` in the ego file, a meeting choice in
+the admin view (`"phase": "meeting"`); without one the game model decides there too.
+
 ```toml
 [model]
 provider = "ollama"
 name = "qwen3-coder:30b"
+
+[model.meeting]
+provider = "anthropic"
 ```
 
 Which models exist comes from the providers themselves: `GET /among-us/api/models` asks each
